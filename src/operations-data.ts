@@ -36,6 +36,8 @@ export type RecordItem = {
   usageDays?: number
   /** Tasks: sub-task (checklist item) names flagged by the reviewer. */
   reviewFlags?: string[]
+  /** Tasks: one photo per sub-task answer, keyed by sub-task name. */
+  subPhotos?: Record<string, string>
   /** Shifts: end time (start uses plannedStart) and unpaid break. */
   endTime?: string
   breakMins?: number
@@ -210,6 +212,7 @@ export function seed(): Database {
       answers: [...checklist],
       photos: [demoEvidence],
       notes: "Synthetic demo evidence. All checklist items completed.",
+      subPhotos: Object.fromEntries(checklist.map((s) => [s, demoEvidence])),
       category: "Ward routine",
       plannedStart: "08:00",
     }),
@@ -232,6 +235,9 @@ export function seed(): Database {
         "Replenish consumables|No|Soap refill out of stock at OPD store",
       ],
       photos: [demoEvidence, demoEvidence],
+      subPhotos: Object.fromEntries(
+        ["Display wet floor sign", "Clean fixtures", "Disinfect touchpoints", "Replenish consumables"].map((s) => [s, demoEvidence]),
+      ),
       notes: "Soap dispenser could not be refilled.",
       plannedStart: "09:00",
       createdAt: new Date(Date.now() - 70 * 60000).toISOString(),
@@ -790,6 +796,27 @@ export function untilText(iso?: string) {
   if (ms <= 0) return "now"
   const hours = Math.ceil(ms / 3600000)
   return hours >= 24 ? `${Math.floor(hours / 24)}d ${hours % 24}h` : `${hours}h`
+}
+/** Downscale a camera image to a JPEG data URL so several photos fit in browser storage. */
+export async function compressImage(file: File, maxSide = 1024, quality = 0.7): Promise<string> {
+  const source = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = source
+  })
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height))
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.round(image.width * scale)
+  canvas.height = Math.round(image.height * scale)
+  canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL("image/jpeg", quality)
 }
 export function recordIssue(db: Database, person: string, material: string): Database {
   return {

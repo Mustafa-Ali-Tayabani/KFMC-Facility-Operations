@@ -2148,3 +2148,17 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(11,77,187,.2
 .ops-mobile .review-detail > header > button:not(.review-back) { order: 2; }
 .ops-mobile .review-section-head { flex-direction: column; gap: 4px; }
 .review-section-head h3 { white-space: nowrap; }
+
+/* Per-answer sub-task photos */
+.subtask-hint { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: #fff4e0; color: #9a5c0c; font-size: 12px; line-height: 1.4; }
+.mobile-check-item > div.subtask-photo { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.subtask-photo img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; }
+.subtask-photo-missing { flex: 1; display: flex; align-items: center; gap: 6px; color: var(--danger); font-size: 12px; font-weight: 600; }
+.subtask-photo-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border: 1px solid var(--primary); border-radius: 10px; color: var(--primary); font-size: 13px; font-weight: 650; cursor: pointer; }
+.subtask-photo-btn input { display: none; }
+.subtask-thumb { width: 34px; height: 34px; margin-left: 8px; object-fit: cover; border-radius: 7px; }
+.review-subtasks li { grid-template-columns: 28px 1fr auto auto auto; }
+.ops-shell .review-sub-photo { width: 44px; height: 44px; padding: 0; overflow: hidden; border-radius: 9px; }
+.review-sub-photo img { width: 100%; height: 100%; object-fit: cover; }
+.ops-mobile .review-subtasks li > .review-sub-photo { grid-column: 2; justify-self: start; }
+.ops-shell .review-preview-back { justify-self: start; padding: 8px 12px; font-size: 12px; }

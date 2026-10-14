@@ -34,16 +34,22 @@ export default function PhotoReviewQueue({
   const [filter, setFilter] = useState<"All" | "Exceptions" | "No photos">("All")
   const [selectedId, setSelectedId] = useState(mobile ? "" : records[0]?.id || "")
   const [photoIndex, setPhotoIndex] = useState(0)
+  const [preview, setPreview] = useState("")
   const [flags, setFlags] = useState<Record<string, string>>({})
   const [note, setNote] = useState("")
   const [error, setError] = useState("")
+  const missingPhotos = (record: RecordItem) =>
+    record.checklist.filter((s) => !record.subPhotos?.[s]).length +
+    (record.evidenceRequired && !record.photos.length ? 1 : 0)
   const exceptions = (record: RecordItem) =>
-    record.checklist.filter((s) => ["No", "N/A", ""].includes(subTaskAnswer(record, s).response)).length
+    record.checklist.filter(
+      (s) => ["No", "N/A", ""].includes(subTaskAnswer(record, s).response) || !record.subPhotos?.[s],
+    ).length
   const visible = records.filter(
     (r) =>
       filter === "All" ||
       (filter === "Exceptions" && exceptions(r) > 0) ||
-      (filter === "No photos" && !r.photos.length),
+      (filter === "No photos" && missingPhotos(r) > 0),
   )
   const selected = records.find((r) => r.id === selectedId)
   useEffect(() => {
@@ -52,6 +58,7 @@ export default function PhotoReviewQueue({
   }, [mobile, selected, records])
   useEffect(() => {
     setPhotoIndex(0)
+    setPreview("")
     setFlags({})
     setNote("")
     setError("")
@@ -97,7 +104,7 @@ export default function PhotoReviewQueue({
                 ? records.length
                 : f === "Exceptions"
                   ? records.filter((r) => exceptions(r) > 0).length
-                  : records.filter((r) => !r.photos.length).length}
+                  : records.filter((r) => missingPhotos(r) > 0).length}
             </b>
           </button>
         ))}
@@ -170,10 +177,17 @@ export default function PhotoReviewQueue({
             <Icon name="camera" size={16} /> Task evidence
           </h3>
           <small>
-            {selected.photos.length} photo{selected.photos.length === 1 ? "" : "s"} · captured once for the whole task
+            {selected.photos.length} overall photo{selected.photos.length === 1 ? "" : "s"} · sub-task photos are below
           </small>
         </div>
-        {selected.photos.length ? (
+        {preview ? (
+          <div className="review-gallery">
+            <img src={preview} alt={`Sub-task photo for ${selected.title}`} />
+            <button className="review-preview-back" onClick={() => setPreview("")}>
+              ← Back to task photos
+            </button>
+          </div>
+        ) : selected.photos.length ? (
           <div className="review-gallery">
             <img
               src={selected.photos[Math.min(photoIndex, selected.photos.length - 1)]}
@@ -223,6 +237,7 @@ export default function PhotoReviewQueue({
                 <div>
                   <strong>{subTask}</strong>
                   {remark && <small>Worker remark: {remark}</small>}
+                  {!selected.subPhotos?.[subTask] && <small>No photo for this answer</small>}
                   {isFlagged && (
                     <input
                       aria-label={`Correction for ${subTask}`}
@@ -232,6 +247,15 @@ export default function PhotoReviewQueue({
                     />
                   )}
                 </div>
+                {selected.subPhotos?.[subTask] && (
+                  <button
+                    className="review-sub-photo"
+                    aria-label={`View photo for ${subTask}`}
+                    onClick={() => setPreview(selected.subPhotos?.[subTask] || "")}
+                  >
+                    <img src={selected.subPhotos[subTask]} alt="" />
+                  </button>
+                )}
                 <span className={`m-pill ${response === "Yes" ? "ok" : response ? "warn" : "bad"}`}>
                   {response || "Not answered"}
                 </span>
@@ -311,8 +335,8 @@ export default function PhotoReviewQueue({
             </div>
           </div>
           <p>
-            Each task carries one set of photo evidence. Check the photos, then
-            review every sub-task and flag only the ones that need correcting.
+            Every sub-task answer comes with its own photo, plus optional overall
+            task photos. Check them, then flag only the sub-tasks that need correcting.
           </p>
         </section>
       )}

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 import {
   checklist,
+  compressImage,
   inventoryCategories,
   item,
   load,
@@ -151,7 +152,7 @@ const moduleIntros: Record<string, string> = {
   Locations: "Master structure of campus, buildings, floors and cleaning zones with their QR codes.",
   Shifts: "Shift definitions used by the weekly roster and zone deployment.",
   "Shift Assignment": "Weekly roster of who works which shift, with coverage and rest checks.",
-  "Photo Review": "Review each submitted task: its photo evidence, then each sub-task.",
+  "Photo Review": "Review each submitted task: every sub-task answer with its photo, plus overall task photos.",
   "Supply Requests": "Requests open only after an item's usage period has passed since the last issue.",
 }
 const initials = (name: string) =>
@@ -722,6 +723,13 @@ export default function Operations({
       target.answers.some((a) => /\|(No|N\/A)(\|\s*)?$/.test(a))
     )
       return fail("Add remarks for every checklist item answered No or N/A.")
+    if (isTask && status === "Pending review") {
+      const missing = target.checklist.filter((s) => !target.subPhotos?.[s])
+      if (missing.length)
+        return fail(
+          `Take a photo for every sub-task answer (${target.checklist.length - missing.length}/${target.checklist.length} done). Missing: ${missing.join(", ")}.`,
+        )
+    }
     if (isTask && status === "In progress") {
       if (worker && target.assignee !== owner)
         return fail("You can only start tasks that are assigned to you.")
@@ -990,6 +998,13 @@ export default function Operations({
       setAssignTo("")
       setIssueZone("")
     }
+  }
+  async function subTaskPhoto(subTask: string, files: FileList | null) {
+    if (!files?.[0] || !selected) return
+    if (!files[0].type.startsWith("image/")) return setError("Choose an image file.")
+    const data = await compressImage(files[0])
+    setSelected({ ...selected, subPhotos: { ...(selected.subPhotos || {}), [subTask]: data } })
+    setError("")
   }
   async function photos(files: FileList | null) {
     if (!files || !selected) return
@@ -2710,6 +2725,11 @@ export default function Operations({
                 {source === "Tasks" && (
                   <>
                     <h3>Sub-tasks</h3>
+                    {mobile && ["Assigned"].includes(selected.status) && (
+                      <p className="subtask-hint">
+                        <Icon name="scan" size={15} /> Scan the location QR below and tap “Verify & start task” to answer sub-tasks.
+                      </p>
+                    )}
                     {(selected.reviewFlags?.length || 0) > 0 && (
                       <p className="ops-error">
                         Reviewer flagged {selected.reviewFlags?.length} sub-task
@@ -2785,6 +2805,33 @@ export default function Operations({
                               />
                             </label>
                           )}
+                          {response && (
+                            <div className="subtask-photo">
+                              {selected.subPhotos?.[checkItem] ? (
+                                <img src={selected.subPhotos[checkItem]} alt={`Photo for ${checkItem}`} />
+                              ) : (
+                                <span className="subtask-photo-missing">
+                                  <Icon name="camera" size={16} /> Photo required for this answer
+                                </span>
+                              )}
+                              {["In progress", "Returned"].includes(selected.status) && (
+                                <label className="subtask-photo-btn">
+                                  <Icon name="camera" size={15} />
+                                  {selected.subPhotos?.[checkItem] ? "Retake" : "Take photo"}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    onChange={(e) =>
+                                      subTaskPhoto(checkItem, e.target.files).catch(() =>
+                                        setError("Unable to read image. Please try again."),
+                                      )
+                                    }
+                                  />
+                                </label>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <label className="ops-check" key={checkItem}>
@@ -2809,6 +2856,9 @@ export default function Operations({
                           />
                           {checkItem}
                           {selected.reviewFlags?.includes(checkItem) && <b className="subtask-flag">Flagged</b>}
+                          {selected.subPhotos?.[checkItem] && (
+                            <img className="subtask-thumb" src={selected.subPhotos[checkItem]} alt={`Photo for ${checkItem}`} />
+                          )}
                           {response && response !== "Yes" && (
                             <em className="check-remark-view">
                               {response}
@@ -2897,7 +2947,7 @@ export default function Operations({
                   <>
                     <h3>{source === "Tasks" ? "Task photo evidence" : "Photo evidence"}</h3>
                     <p className="ops-muted">
-                      {source === "Tasks" && "One set of photos covers the whole task and all its sub-tasks. "}
+                      {source === "Tasks" && "Overall photos for the task, in addition to the photo taken with each sub-task answer. "}
                       Do not include patients or identifying information.
                       {selected.evidenceRequired
                         ? " Evidence is required for this task."

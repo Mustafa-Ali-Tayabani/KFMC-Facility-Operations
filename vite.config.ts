@@ -1,9 +1,14 @@
 import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import fs from 'node:fs'
 import path from 'node:path'
 
-import siteConfiguration from './.figma/make/site.json'
+// Figma Make provides .figma/make/site.json; outside Make (local, Vercel) fall back to defaults.
+const siteConfigPath = path.resolve(__dirname, './.figma/make/site.json')
+const siteConfiguration: FigmaSiteConfiguration = fs.existsSync(siteConfigPath)
+  ? JSON.parse(fs.readFileSync(siteConfigPath, 'utf8'))
+  : { title: 'KFMC Facility Operations' }
 
 
 // Vite config — https://vitejs.dev/config/

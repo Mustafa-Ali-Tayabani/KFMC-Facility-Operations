@@ -34,9 +34,11 @@ import PhotoReviewQueue from "./PhotoReviewQueue"
 import ActivityLogView from "./ActivityLogView"
 import { ShiftAssignment, ShiftManagement } from "./Shifts"
 import StockUtilization from "./StockUtilization"
+import FormsModule from "./FormsModule"
 
 type Props = {
   role: string
+  person?: string
   mobile: boolean
   onSwitch: (kind: "web" | "mobile") => void
   onSignOut: () => void
@@ -57,6 +59,7 @@ const symbols: Record<string, IconName> = {
   Dashboard: "home",
   Tasks: "tasks",
   "Photo Review": "camera",
+  "Official Checklists": "clipboard",
   Checklists: "clipboard",
   "Service Requests": "bell",
   Patrols: "shield",
@@ -92,6 +95,7 @@ const navGroups = [
   {
     label: "Task management",
     items: [
+      "Official Checklists",
       "Tasks",
       "Checklists",
       "Checklist Assignment",
@@ -148,6 +152,7 @@ const recordNames: Record<string, string> = {
   "Staff & Roster": "person",
 }
 const moduleIntros: Record<string, string> = {
+  "Official Checklists": "Zahran Company / KFMC housekeeping checklists: Team Leader initial → Supervisor check → General Supervisor review → Housekeeping Section Head approval.",
   "Staff & Roster": "Master record for every person: identity, contact, employer, role and default shift.",
   Locations: "Master structure of campus, buildings, floors and cleaning zones with their QR codes.",
   Shifts: "Shift definitions used by the weekly roster and zone deployment.",
@@ -220,6 +225,7 @@ function formatTaskDate(value?: string) {
 
 export default function Operations({
   role,
+  person: personName,
   mobile,
   onSwitch,
   onSignOut,
@@ -257,11 +263,12 @@ export default function Operations({
   const [stockMode, setStockMode] = useState("Issue")
   const [issueZone, setIssueZone] = useState("")
   const [equipmentReturn, setEquipmentReturn] = useState("")
-  const supervisor = ["Supervisor", "QBS Admin", "Operations Manager"].includes(
+  const supervisor = ["Supervisor", "QBS Admin", "Operations Manager", "General Supervisor", "Housekeeping Section Head"].includes(
     role,
   )
   const worker = !supervisor && role !== "Storekeeper"
-  const owner = role === "Guard" ? "Omar Hassan" : "Sara Ahmed"
+  const owner = role === "Guard" ? "Omar Hassan" : role === "Team Leader" ? "Khalid Al-Otaibi" : "Sara Ahmed"
+  const person = personName || (role === "Supervisor" ? "Faisal Al-Harbi" : owner)
   const source = active === "Photo Review" ? "Tasks" : active
   const tasks = db.records.Tasks
   const ownTasks = worker
@@ -294,6 +301,7 @@ export default function Operations({
         ]
       : worker
         ? [
+            ...(role === "Team Leader" ? ["Official Checklists"] : []),
             "Tasks",
             ...(role === "Guard"
               ? ["Patrols", "Incidents"]
@@ -303,6 +311,7 @@ export default function Operations({
             "Announcements",
           ]
         : [
+            "Official Checklists",
             ...modules.filter(
               (module) =>
                 !["Issuance & Returns", "Replenishment", "Equipment"].includes(
@@ -1207,7 +1216,7 @@ export default function Operations({
                 setBellOpen(false)
               }}
             >
-              {worker ? initials(owner) : "FA"}
+              {worker ? initials(owner) : initials(person)}
             </button>
             {bellOpen && (
               <div className="ops-bell-panel" role="menu">
@@ -1283,6 +1292,9 @@ export default function Operations({
             >
               {[
                 "Supervisor",
+                "Team Leader",
+                "General Supervisor",
+                "Housekeeping Section Head",
                 "Operations Manager",
                 "Storekeeper",
                 "Cleaner",
@@ -1298,7 +1310,7 @@ export default function Operations({
               </button>
             )}
             <span className="ops-avatar">
-              {worker ? initials(owner) : "FA"}
+              {worker ? initials(owner) : initials(person)}
             </span>
             <button onClick={onSignOut}>Sign out</button>
           </div>
@@ -1318,7 +1330,7 @@ export default function Operations({
                 </span>
                 <h1>
                   {active === "Dashboard"
-                    ? `Good morning, ${worker ? owner.split(" ")[0] : "Faisal"}`
+                    ? `Good morning, ${worker ? owner.split(" ")[0] : person.split(" ")[0]}`
                     : moduleLabels[active] || active}
                 </h1>
                 <p>
@@ -1424,6 +1436,8 @@ export default function Operations({
               onNavigate={setActive}
             />
             </>
+          ) : active === "Official Checklists" ? (
+            <FormsModule key={role} dept="housekeeping" role={role} person={person} mobile={mobile} onToast={setToast} />
           ) : active === "Staff Workload" ? (
             <WorkloadView
               db={db}
@@ -2035,9 +2049,9 @@ export default function Operations({
                 </button>
               </div>
               <div className="m-profile">
-                <span>{worker ? initials(owner) : "FA"}</span>
+                <span>{worker ? initials(owner) : initials(person)}</span>
                 <div>
-                  <strong>{worker ? owner : role === "Storekeeper" ? "Central Store" : "Faisal Al-Harbi"}</strong>
+                  <strong>{worker ? owner : role === "Storekeeper" ? "Central Store" : person}</strong>
                   <small>{role} · Morning shift</small>
                 </div>
               </div>
@@ -2134,7 +2148,7 @@ export default function Operations({
                       ["Dashboard", "Home", "home"],
                       ["Tasks", "My Tasks", "tasks"],
                       ["__scan", "Scan", "scan"],
-                      role === "Guard" ? ["Patrols", "Patrols", "shield"] : ["Supply Requests", "Supplies", "box"],
+                      role === "Guard" ? ["Patrols", "Patrols", "shield"] : role === "Team Leader" ? ["Official Checklists", "Checklists", "clipboard"] : ["Supply Requests", "Supplies", "box"],
                     ]
                 return [...items, ["__more", "More", "menu"] as [string, string, IconName]].map(([module, label, icon]) =>
                   module === "__scan" ? (

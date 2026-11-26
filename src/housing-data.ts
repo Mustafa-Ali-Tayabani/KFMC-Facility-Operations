@@ -37,7 +37,25 @@ export type HousingRequest = {
   planDecision?: "Relocate / accommodate" | "Delay the request" | "Add to waiting list" | "Apologize to the resident" | "Other"
   planUnitId?: string
   /** Form 8.15 / Relocation Accommodation Form */
-  assignment?: { reference: string; workOrder: string; housingType: "Inside" | "Outside"; processType: "New Arrival" | "Live In" | "Relocation"; unitId: string; arrivalDate: string }
+  assignment?: {
+    reference: string
+    workOrder: string
+    housingType: "Inside" | "Outside"
+    processType: "New Arrival" | "Live In" | "Relocation"
+    unitId: string
+    arrivalDate: string
+    contractType?: string
+    familyMembers?: number
+    girls?: string
+    boys?: string
+    domestic?: "None" | "Driver" | "House keeper" | "Driver & house keeper"
+    emergencyName?: string
+    emergencyMobile?: string
+  }
+  /** Chairperson, Housing Administration approval of the assignment and the cc list notified. */
+  adminApproval?: { by: string; at: string; cc: string[] }
+  /** Date of receiving the unit (signed on the 8.15 / relocation form). */
+  receivedDate?: string
   /** Forms 8.10 and 8.6 */
   pledgeSigned?: boolean
   unfurnished?: { noFurniture: boolean; noAppliances: boolean; notes: string }
@@ -50,6 +68,24 @@ export type HousingRequest = {
 export type WaitingEntry = { id: string; workOrder: string; residentId?: string; name: string; empNo: string; currentUnit: string; hireDate: string; requestType: string; action: "Pending" | "Planned" | "Done" | "Rejected by resident"; score: number; unitPlan: string; requestRef?: string; addedAt: string }
 export type HousingDb = { groups: HousingGroup[]; units: Unit[]; residents: Resident[]; movements: Movement[]; requests: HousingRequest[]; waiting: WaitingEntry[]; seq: number }
 
+/** Copied to these offices when the Chairperson, Housing Administration approves an assignment (8.15 / relocation form). */
+export const ccList = ["Chairperson, Housing Operation Department", "Recruitment Office", "Supervisor, Housing Operation", "Housing Coordinator", "Housing Data Center"]
+/** Housing Terms and Conditions Pledge (8.10) — all 13 clauses. */
+export const housingTerms = [
+  "I have seen the housing terms and conditions, evacuation and the violation schedule, and I pledge to preserve the housing unit and its content.",
+  "KFMC is entitled to verify the information provided by the resident, and that all persons residing with the resident in the unit are listed on their family card or iqama.",
+  "Residents are not entitled to rent the unit internally or to assign it to others in any case.",
+  "The resident has no first-degree relatives holding KFMC housing units and will report any new case.",
+  "No permanent or temporary changes or additions to the unit, inside or outside, without prior written approval from the Housing Department.",
+  "The resident pays electricity and water bills and will not be cleared until the agreed payment is made.",
+  "The resident keeps up the periodic maintenance of the unit according to the schedule approved by the Operation and Maintenance Administration.",
+  "The resident evacuates the unit when KFMC needs it and requests it.",
+  "KFMC may withdraw the unit if it is proven to be used for other purposes.",
+  "The resident hands over the unit within 14 days of the last day of employment.",
+  "If the unit is not evacuated within that period, the competent KFMC authorities may enter the unit, inventory the resident's property and store it at the resident's expense without their approval.",
+  "The unit is handed over at the end of service in a clean condition with the furniture arranged according to the unit's design.",
+  "On evacuation, the resident bears all cleaning, repair and maintenance costs resulting from misuse, or any damage to the roof insulation from installing a satellite dish.",
+]
 export const relocationReasons = [
   "Distance between the unit and entertainment facilities",
   "The need for a ground floor unit",
@@ -71,6 +107,7 @@ export const stagesFor = (kind: RequestKind): Stage[] =>
         { label: "Planning Unit recommendation", form: "Form 8.5 · Planning", roles: ["Planning Unit Head"] },
         { label: "Chairperson approval", form: "Form 8.5 · Approval", roles: ["Housing Chairperson"] },
         { label: kind === "Relocation" ? "Relocation assignment" : "Accommodation assignment", form: kind === "Relocation" ? "Relocation Accommodation Form" : "Form 8.15", roles: ["Housing Coordinator"] },
+        { label: "Housing Administration approval", form: kind === "Relocation" ? "Relocation Accommodation Form · Approved by" : "Form 8.15 · Approved by", roles: ["Housing Administration Chairperson"] },
         { label: "Resident receives unit", form: "Forms 8.10 & 8.6", roles: ["Resident", "Housing Coordinator"] },
       ]
 
@@ -89,6 +126,7 @@ const positions = ["Nurse", "Nursing Specialist", "Staff Nurse", "Resident Docto
 const depts = ["ER", "ICU", "NICU", "OR", "MW", "FW", "OPD", "Laboratory", "Radiology", "Pharmacy", "Quality", "Dialysis"]
 
 export const groups: HousingGroup[] = [
+  { id: "G01", code: "Group 1", hospital: "KFMC Main Campus · Villas", hospitalAr: "المدينة الطبية · الفلل", kind: "Families" },
   { id: "G26", code: "Group 26", hospital: "Rimah Hospital", hospitalAr: "مستشفى رماح", kind: "Staff" },
   { id: "G28", code: "Group 28", hospital: "Al-Ghat Hospital", hospitalAr: "مستشفى الغاط", kind: "Staff" },
   { id: "G30", code: "Group 30", hospital: "King Khalid Hospital, Majmaah", hospitalAr: "مستشفى الملك خالد بالمجمعة", kind: "Families" },
@@ -100,6 +138,7 @@ export const groups: HousingGroup[] = [
 ]
 /** [group, building, units, beds per apartment, type, occupied, guest, offices] — from the daily reports. */
 const layout: [string, string, number, number, string, number, number, number][] = [
+  ["G01", "Villas", 90, 1, "Villa", 64, 0, 0],
   ["G26", "26-A", 6, 1, "Offices", 0, 0, 6],
   ["G26", "26-B", 57, 6, "Staff", 24, 0, 3],
   ["G26", "26-C", 21, 6, "Staff", 10, 0, 4],
@@ -150,7 +189,7 @@ export function seedHousing(): HousingDb {
     for (let i = 0; i < count; i++) {
       const apt = Math.floor(i / beds)
       const floor = Math.floor(apt / 4)
-      const label = beds > 1 ? `${floor + 1}${String((apt % 4) + 1).padStart(2, "0")}-${"ABCDEF"[i % beds]}` : `${String(i + 1).padStart(3, "0")}`
+      const label = type === "Villa" ? `V-${String(i + 1).padStart(2, "0")}` : beds > 1 ? `${floor + 1}${String((apt % 4) + 1).padStart(2, "0")}-${"ABCDEF"[i % beds]}` : `${String(i + 1).padStart(3, "0")}`
       made.push({ id: `${group}-${building}-${label}`, group, building, unit: label, capacity: beds, status: "Vacant", type, furnished: rnd() > 0.15 })
     }
     made.slice(0, offices).forEach((u) => ((u.status = "Offices"), (u.type = "Offices")))
@@ -226,7 +265,7 @@ export function seedHousing(): HousingDb {
   const waiting: WaitingEntry[] = [
     { id: "w1", workOrder: "18810457", residentId: mover2.id, name: mover2.name, empNo: mover2.kfmcId, currentUnit: unitLabel(mover2.unitId), hireDate: mover2.arrival, requestType: "Upper floor in same group", action: "Pending", score: 12, unitPlan: "", requestRef: "HR-2026-0388", addedAt: iso(14) },
     ...[
-      ["17389049", "Live-in (from outside housing)", 9, "Pending", ""],
+      ["17389049", "Request for inside villa", 9, "Pending", ""],
       ["13489577", "Outside to inside request", 11, "Planned", "G30 · H-021"],
       ["16400667", "Upper floor to ground floor", 14, "Planned", "G34 · 102-A"],
       ["14589504", "Family flat request", 15, "Pending", ""],
@@ -240,7 +279,7 @@ export function seedHousing(): HousingDb {
   return { groups, units, residents, movements, requests, waiting, seq: 412 }
 }
 
-export const housingKey = "kfmc-housing-v1"
+export const housingKey = "kfmc-housing-v2"
 export function loadHousing(): HousingDb {
   try {
     const data = JSON.parse(localStorage.getItem(housingKey) || "null")

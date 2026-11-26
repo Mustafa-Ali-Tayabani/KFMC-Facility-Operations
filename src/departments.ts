@@ -82,6 +82,7 @@ export const accounts: Account[] = [
   { username: "hplan", password: "plan123", role: "Planning Unit Head", dept: "housing", apps: ["web"], person: "Bandar Al-Rashid" },
   { username: "hchair", password: "chair123", role: "Housing Chairperson", dept: "housing", apps: ["web"], person: "Dr. Mona Al-Saud" },
   { username: "hmaint", password: "maint123", role: "Maintenance Supervisor", dept: "housing", apps: ["mobile", "web"], person: "Yasser Al-Harthi" },
+  { username: "hadmin", password: "hadmin123", role: "Housing Administration Chairperson", dept: "housing", apps: ["web"], person: "Abdulrahman Al-Shehri" },
   { username: "resident", password: "res123", role: "Resident", dept: "housing", apps: ["mobile"], person: "Lina Haddad" },
   // Food & Nutrition
   { username: "chef", password: "chef123", role: "Chef", dept: "food", apps: ["mobile", "web"], person: "Chef Ramesh Kumar" },
@@ -91,8 +92,16 @@ export const accounts: Account[] = [
   { username: "fss", password: "fss123", role: "Food Safety Specialist", dept: "food", apps: ["web", "mobile"], person: "Hanan Al-Buraidi" },
   { username: "smeh", password: "smeh123", role: "Contractor Management", dept: "food", apps: ["web"], person: "Ahmed Azab" },
   { username: "fsection", password: "fsec123", role: "Food Safety Section", dept: "food", apps: ["web"], person: "Ahlam Al-Qahtani" },
+  { username: "fnhead", password: "fnhead123", role: "F&N Services Department", dept: "food", apps: ["web"], person: "Dr. Nawal Al-Harbi" },
+  { username: "fdist", password: "dist123", role: "Head of Food Distribution", dept: "food", apps: ["web"], person: "Fahad Al-Mutlaq" },
+  { username: "fmaint", password: "fmaint123", role: "Maintenance Technician", dept: "food", apps: ["mobile", "web"], person: "Sanjay Pillai" },
+  { username: "diettech", password: "diet123", role: "Diet Technician", dept: "food", apps: ["mobile", "web"], person: "Mariam Al-Juhani" },
+  { username: "pest", password: "pest123", role: "Pest Control Contractor", dept: "food", apps: ["mobile", "web"], person: "Rashid Pest Control" },
+  { username: "smehacct", password: "acct123", role: "Contractor Accountant", dept: "food", apps: ["web"], person: "Mahmoud Saeed" },
   // Executive
   { username: "director", password: "dir123", role: "Support Services Director", dept: "executive", apps: ["web"], person: "Eng. Ahmed Al-Kathiri" },
+  { username: "ssacct", password: "ssacct123", role: "Support Services Accountant", dept: "executive", apps: ["web"], person: "Abdullah Al-Zulfah" },
+  { username: "execdir", password: "exec123", role: "Executive Director of Operations", dept: "executive", apps: ["web"], person: "Eng. Abdulaziz Al-Sudairi" },
 ]
 
 export const deptOf = (id: DeptId) => departments.find((d) => d.id === id) || departments[0]

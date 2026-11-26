@@ -3,6 +3,8 @@ import Icon from "./Icon"
 import {
   housingKey,
   loadHousing,
+  ccList,
+  housingTerms,
   relocationReasons,
   saveHousing,
   stagesFor,
@@ -509,7 +511,8 @@ function RequestPanel({ db, q, role, person, canAct, onClose, onSave }: { db: Ho
   const [choice, setChoice] = useState("")
   const [unitId, setUnitId] = useState(q.planUnitId || "")
   const [lines, setLines] = useState({ maintenance: "", missing: "", damage: "" })
-  const [assign, setAssign] = useState({ reference: q.ref.replace("HR", "ACC"), workOrder: "", housingType: "Inside", processType: q.kind === "Relocation" ? "Relocation" : "New Arrival", arrivalDate: new Date().toISOString().slice(0, 10) })
+  const [assign, setAssign] = useState({ reference: q.ref.replace("HR", "ACC"), workOrder: "", housingType: "Inside", processType: q.kind === "Relocation" ? "Relocation" : "New Arrival", arrivalDate: new Date().toISOString().slice(0, 10), contractType: r.contract || "", familyMembers: String(r.family || (r.marital === "Married" ? 2 : 1)), girls: "", boys: "", domestic: "None", emergencyName: "", emergencyMobile: "" })
+  const [received, setReceived] = useState(new Date().toISOString().slice(0, 10))
   const [pledge, setPledge] = useState(false)
   const [unf, setUnf] = useState({ noFurniture: false, noAppliances: false, notes: "" })
   const [exitType, setExitType] = useState<"Exit" | "Live-Out">(q.exitType || "Exit")
@@ -597,23 +600,40 @@ function RequestPanel({ db, q, role, person, canAct, onClose, onSave }: { db: Ho
             <label className="hs-field">Process type<select value={assign.processType} onChange={(e) => setAssign({ ...assign, processType: e.target.value })}><option>New Arrival</option><option>Live In</option><option>Relocation</option></select></label>
             <label className="hs-field">Unit<input disabled value={unitName(db, q.planUnitId)} /></label>
             <label className="hs-field">Date of arrival / move<input type="date" value={assign.arrivalDate} onChange={(e) => setAssign({ ...assign, arrivalDate: e.target.value })} /></label>
+            <label className="hs-field">Type of contract<input value={assign.contractType} onChange={(e) => setAssign({ ...assign, contractType: e.target.value })} /></label>
+            <label className="hs-field">Number of family members<input type="number" min={1} value={assign.familyMembers} onChange={(e) => setAssign({ ...assign, familyMembers: e.target.value })} /></label>
+            <label className="hs-field">Number of girls and ages<input placeholder="e.g. 2 · ages 4, 9" value={assign.girls} onChange={(e) => setAssign({ ...assign, girls: e.target.value })} /></label>
+            <label className="hs-field">Number of boys and ages<input placeholder="e.g. 1 · age 7" value={assign.boys} onChange={(e) => setAssign({ ...assign, boys: e.target.value })} /></label>
+            <label className="hs-field">Driver / house keeper<select value={assign.domestic} onChange={(e) => setAssign({ ...assign, domestic: e.target.value })}><option>None</option><option>Driver</option><option>House keeper</option><option>Driver & house keeper</option></select></label>
+            <span />
+            <label className="hs-field">Emergency contact · name<input value={assign.emergencyName} onChange={(e) => setAssign({ ...assign, emergencyName: e.target.value })} /></label>
+            <label className="hs-field">Emergency contact · mobile no.<input value={assign.emergencyMobile} onChange={(e) => setAssign({ ...assign, emergencyMobile: e.target.value })} /></label>
           </div>
-          <p className="ops-muted">Cc: Chairperson Housing Operation Department · Recruitment Office · Supervisor, Housing Operation · Housing Coordinator · Housing Data Center</p>
-          <footer className="hs-foot"><button className="ops-primary" disabled={!assign.workOrder} onClick={() => advance("Unit assigned", { stage: 5, assignment: { ...assign, unitId: q.planUnitId!, housingType: assign.housingType as "Inside", processType: assign.processType as "Live In" } })}>Assign unit & notify resident</button></footer>
+          <p className="ops-muted">Assigned by: Coordinator, Housing Planning Department ({person}). Next: approval by the Chairperson, Housing Administration.</p>
+          <footer className="hs-foot"><button className="ops-primary" disabled={!assign.workOrder || !assign.emergencyName || !assign.emergencyMobile} onClick={() => advance("Unit assigned", { stage: 5, assignment: { ...assign, unitId: q.planUnitId!, housingType: assign.housingType as "Inside", processType: assign.processType as "Live In", familyMembers: Number(assign.familyMembers) || 1, domestic: assign.domestic as "None" } })}>Assign unit · send for approval</button></footer>
         </>
       )
     if (q.stage === 5)
       action = (
         <>
+          <h3>Approval · Chairperson, Housing Administration</h3>
+          <p>Assignment {q.assignment?.reference} · WO {q.assignment?.workOrder} · {unitName(db, q.assignment?.unitId)} · {q.assignment?.processType} from {day(q.assignment?.arrivalDate)}</p>
+          <p className="ops-muted">On approval, copies go to: {ccList.join(" · ")}</p>
+          <input className="hs-note" placeholder="Note (required to reject)" value={note} onChange={(e) => setNote(e.target.value)} />
+          <footer className="hs-foot">
+            <button disabled={!note} onClick={() => advance("Rejected", { status: "Rejected" }, (d) => ({ ...d, units: d.units.map((u) => (u.id === q.assignment?.unitId && u.status === "Reserved" ? { ...u, status: "Vacant" } : u)) }))}>Reject</button>
+            <button className="ops-primary" onClick={() => advance("Approved · cc sent", { stage: 6, adminApproval: { by: person, at: new Date().toISOString(), cc: ccList } }, (d) => d, `${q.ref} approved · copies sent to ${ccList.length} offices`)}>Approve & send copies</button>
+          </footer>
+        </>
+      )
+    if (q.stage === 6)
+      action = (
+        <>
           <h3>Housing Terms & Conditions Pledge (8.10)</h3>
           <ol className="hs-terms">
-            <li>I have seen the housing terms and conditions, evacuation and violation schedule, and pledge to preserve the unit and its contents.</li>
-            <li>The unit may not be rented internally or assigned to others.</li>
-            <li>No first-degree relatives hold KFMC housing units; new cases will be reported.</li>
-            <li>No permanent or temporary changes without prior written approval from Housing.</li>
-            <li>Electricity and water bills are paid by the resident; clearance only after payment.</li>
-            <li>The unit is handed over within 14 days of the last working day, clean and arranged.</li>
+            {housingTerms.map((term) => <li key={term}>{term}</li>)}
           </ol>
+          <label className="hs-field">Date of receiving the unit<input type="date" value={received} onChange={(e) => setReceived(e.target.value)} /></label>
           <label className="hs-check"><input type="checkbox" checked={pledge} onChange={(e) => setPledge(e.target.checked)} /> {r.name} accepts the terms and receives unit {unitName(db, q.assignment?.unitId)}</label>
           {targetUnit && !targetUnit.furnished && (
             <>
@@ -630,7 +650,7 @@ function RequestPanel({ db, q, role, person, canAct, onClose, onSave }: { db: Ho
             const newUnit = q.assignment!.unitId
             const oldUnit = r.unitId
             const type: MovementType = q.kind === "Relocation" ? "Relocation" : q.assignment?.processType === "New Arrival" ? "New arrival" : "Live-In"
-            advance("Unit received", { status: "Completed", stage: 6, pledgeSigned: true, unfurnished: targetUnit && !targetUnit.furnished ? unf : undefined }, (d) => ({
+            advance("Unit received", { status: "Completed", stage: 7, pledgeSigned: true, receivedDate: received, unfurnished: targetUnit && !targetUnit.furnished ? unf : undefined }, (d) => ({
               ...d,
               units: d.units.map((u) => (u.id === newUnit ? { ...u, status: "Occupied", residentId: r.id } : u.id === oldUnit ? { ...u, status: "Vacant", residentId: undefined } : u)),
               residents: d.residents.map((x) => (x.id === r.id ? { ...x, unitId: newUnit } : x)),
@@ -706,6 +726,10 @@ function RequestPanel({ db, q, role, person, canAct, onClose, onSave }: { db: Ho
             <dt>Reasons</dt><dd>{[...(q.reasons || []), q.otherReason].filter(Boolean).join(" · ") || "—"}</dd>
             {q.planUnitId && <><dt>Planned unit</dt><dd>{unitName(db, q.planUnitId)}</dd></>}
             {q.assignment && <><dt>Assignment</dt><dd>{q.assignment.reference} · WO {q.assignment.workOrder} · {q.assignment.housingType} · {q.assignment.processType} · {day(q.assignment.arrivalDate)}</dd></>}
+            {q.assignment?.contractType !== undefined && <><dt>Contract / family</dt><dd>{q.assignment.contractType || "—"} · {q.assignment.familyMembers} member(s){q.assignment.girls ? ` · girls ${q.assignment.girls}` : ""}{q.assignment.boys ? ` · boys ${q.assignment.boys}` : ""} · {q.assignment.domestic}</dd></>}
+            {q.assignment?.emergencyName && <><dt>Emergency contact</dt><dd>{q.assignment.emergencyName} · {q.assignment.emergencyMobile}</dd></>}
+            {q.adminApproval && <><dt>Approved by</dt><dd>{q.adminApproval.by} · {stamp(q.adminApproval.at)} · cc: {q.adminApproval.cc.join(", ")}</dd></>}
+            {q.receivedDate && <><dt>Date of receiving unit</dt><dd>{day(q.receivedDate)}</dd></>}
           </>
         )}
       </dl>

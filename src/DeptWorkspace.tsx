@@ -55,7 +55,7 @@ function navFor(dept: Props["dept"], role: string): { label: string; items: stri
     ]
   }
   if (dept === "food") {
-    const contract = ["Contractor Management", "Food Safety Section"].includes(role)
+    const contract = ["Contractor Management", "Contractor Accountant", "Food Safety Section", "F&N Services Department"].includes(role)
     return [
       { label: "Overview", items: ["Dashboard"] },
       { label: "Food safety", items: ["Forms"] },

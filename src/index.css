@@ -2443,3 +2443,34 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(11,77,187,.2
 .login-page .eyebrow { color: var(--dept, var(--primary)); }
 .reg-dot { display: inline-grid; place-items: center; padding: 0; line-height: 1; vertical-align: middle; }
 .fn-extract .ops-primary, .forms-toolbar .ops-primary, .hs-foot .ops-primary, .hs-new .ops-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.forms-multi { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.forms-multi button { border: 1px solid var(--border); background: white; border-radius: 99px; padding: 4px 9px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.forms-multi button.on { background: var(--primary); border-color: var(--primary); color: white; }
+.forms-recheck { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.forms-recheck input { width: 120px; height: 28px; border: 1px dashed var(--warning); border-radius: 7px; padding: 0 7px; font: inherit; font-size: 11px; }
+.forms-recheck small { font-size: 10px; color: var(--warning); }
+.forms-recheck.resolved small { color: var(--success); }
+.forms-recheck.inspection small, .forms-recheck.inspection input { color: var(--danger); border-color: var(--danger); }
+.forms-re { font-style: normal; font-size: 11px; color: var(--warning); }
+.forms-re.resolved { color: var(--success); }
+.forms-re.inspection { color: var(--danger); font-weight: 700; }
+.forms-insp { color: var(--danger); }
+.forms-ok { color: var(--success); font-weight: 500; }
+.ex-num { width: 72px; height: 28px; border: 1px solid var(--border); border-radius: 6px; text-align: right; padding: 0 6px; font: inherit; font-size: 11px; }
+.ex-num.wide { width: 110px; }
+.ex-text { width: 100%; min-width: 120px; height: 28px; border: 1px solid var(--border); border-radius: 6px; padding: 0 7px; font: inherit; font-size: 11px; }
+.ex-daily td, .ex-daily th { padding: 3px 4px !important; }
+.ex-daily .ex-num { width: 52px; height: 24px; }
+.ex-note { margin: -4px 0 12px; }
+.ex-hosp { margin-bottom: 12px; }
+.ex-cert td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-cert td:first-child { width: 28px; font-weight: 700; }
+.ex-cert small { display: block; color: var(--warning); }
+.ex-inline { max-width: 280px; margin-top: 14px; }
+.ex-perf td small { display: block; }
+.ex-bad { color: var(--danger); font-weight: 600; }
+.ex-attach { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.ex-cert-text { font-size: 14px; line-height: 1.8; }
+.forms-addrow-btn { margin: 10px; border: 1px dashed var(--border); background: white; border-radius: 9px; padding: 7px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.fn-extract .forms-tabs { margin-top: 2px; }
+.forms-multi { min-width: 230px; }

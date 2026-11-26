@@ -4,8 +4,9 @@
  * critical limits and the sign-off chain printed at the foot of the paper form.
  */
 import type { DeptId } from "./departments"
+import { ppmAreas } from "./ppm-data"
 
-export type ColType = "yesno" | "sumna" | "temp" | "number" | "text" | "time" | "date" | "select" | "rating"
+export type ColType = "yesno" | "sumna" | "temp" | "number" | "text" | "time" | "date" | "select" | "multi" | "rating"
 export type Limit = { min?: number; max?: number }
 export type Column = {
   key: string
@@ -23,6 +24,8 @@ export type Column = {
   within?: { from: string; minutes: number }
   /** Dates before today are non-conforming (expiry dates). */
   future?: boolean
+  /** Pre-filled value (e.g. the planned PPM week). */
+  default?: string
 }
 export type Section = {
   title: string
@@ -35,8 +38,14 @@ export type Section = {
   /** Rows where a "Yes" answer is the non-conformity (negatively worded questions). */
   inverted?: string[]
   note?: string
+  /** Rows chosen by a header value (PPM area → equipment, hospital → wards). */
+  rowsBy?: { key: string; map: Record<string, string[]> }
+  /** Columns chosen by a header value (hospital → ward columns). */
+  columnsBy?: { key: string; map: Record<string, Column[]> }
+  /** An out-of-limit reading needs a re-check after N minutes; still out → flagged for inspection. */
+  recheck?: number
 }
-export type HeaderField = { key: string; label: string; type?: "text" | "select" | "date" | "time" | "number"; options?: string[] }
+export type HeaderField = { key: string; label: string; type?: "text" | "select" | "date" | "time" | "number"; options?: string[]; optionsBy?: { key: string; map: Record<string, string[]> } }
 export type Step = { label: string; title: string; org: string; roles: string[] }
 export type FormTemplate = {
   id: string
@@ -84,15 +93,24 @@ const NUT_CHAIN: Step[] = [
   { label: "Review & action", title: "Project Manager / Asst. Project Manager", org: "SMEH", roles: ["Contractor Management"] },
   { label: "Approved by", title: "KFMC Food & Nutrition Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] },
 ]
+const FN_DEPT: Step = { label: "Approved by", title: "Food & Nutrition Services Department", org: "King Fahad Medical City", roles: ["F&N Services Department"] }
 const WASTE_CHAIN: Step[] = [
   { label: "Inspected by", title: "Food Safety Specialist", org: "Contractor", roles: ["Food Safety Team", "Food Safety Specialist"] },
   { label: "Noted by", title: "SMEH Management", org: "SMEH", roles: ["Contractor Management"] },
-  { label: "Reviewed & approved by", title: "KFMC Food & Nutrition Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] },
+  { label: "Reviewed by", title: "KFMC Food & Nutrition Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] },
+  FN_DEPT,
 ]
 
 /* ───────────── Shared field sets ───────────── */
 const YN: Column = { key: "done", label: "Done", type: "yesno" }
-const hospitals = ["KFMC Main Hospital", "Women's Specialized Hospital", "Children's Specialized Hospital", "Rehabilitation Hospital"]
+export const hospitals = ["Main Hospital", "Maternity Hospital", "Children's Hospital", "Rehabilitation Hospital"]
+/** Wards per hospital for meal traceability. Maternity is from the client form; the other lists are placeholders until the client sends them. */
+export const hospitalWards: Record<string, string[]> = {
+  "Main Hospital": ["ER", "ICU", "CCU", "Ward 4A", "Ward 4B", "Ward 5A", "Ward 5B", "Ward 6A"],
+  "Maternity Hospital": ["2-4", "3-3", "M-1-H", "2-1", "2-2", "ICU", "2-3", "3-1", "3-4"],
+  "Children's Hospital": ["PICU", "NICU", "Ped Ward 1", "Ped Ward 2", "Ped Oncology"],
+  "Rehabilitation Hospital": ["Rehab Ward 1", "Rehab Ward 2", "Spinal Unit"],
+}
 const shifts3 = ["1st", "2nd", "3rd"]
 const meals = ["Breakfast", "Lunch", "Dinner", "Iftar", "Sahoor"]
 const hk = (key: string, label: string, options?: string[]): HeaderField => ({ key, label, type: options ? "select" : "text", options })
@@ -127,7 +145,7 @@ const housekeeping: FormTemplate[] = [
           "Prepare the cleaning equipment/solutions — use double bucket and colour-coded mops/cloths",
           "Always perform hand hygiene",
           "Don appropriate PPE",
-          "Start from the door; damp dust and disinfect all high-touch surfaces (door handles, knobs, light switches, call box, telephone, window sills & ledges, sink & faucet, soap & paper-towel dispensers, biohazard bin, over-bed table, chairs, bedside tables, wall-mounted equipment)",
+          "Start from the door; damp dust and disinfect all high-touch surfaces (door handles, knobs, light switches, call box, telephone, window sills & ledges, sink & faucet, soap & paper-towel dispensers, biohazard bin, dry erase marker, over-bed table, chairs, bedside tables, wall-mounted equipment)",
           "Dry mop the floor with easy-trap duster",
         ],
       },
@@ -168,7 +186,7 @@ const housekeeping: FormTemplate[] = [
     category: "Daily cleaning",
     frequency: "Per shift",
     source: "STANDARD DAILY CLEANING OF WARD HALLWAY NURSE STATION PANTRY (2-shift & 3-shift weekly schedule)",
-    header: [hk("hospital", "Hospital", hospitals), hk("floor", "Floor"), hk("ward", "Area / Ward"), { key: "date", label: "Date", type: "date" }, hk("pattern", "Shift schedule", ["3-shift ward", "2-shift ward"]), hk("shift", "Shift", shifts3)],
+    header: [hk("hospital", "Hospital", hospitals), hk("floor", "Floor"), hk("ward", "Area / Ward"), { key: "date", label: "Date", type: "date" }, hk("pattern", "Shift schedule", ["3-shift ward", "2-shift ward"]), { ...hk("shift", "Shift", shifts3), optionsBy: { key: "pattern", map: { "3-shift ward": shifts3, "2-shift ward": ["6am–6pm", "6pm–6am"] } } }],
     sections: [
       {
         title: "Nurse station",
@@ -298,7 +316,7 @@ const food: FormTemplate[] = [
       ],
     }],
     limits: ["Chlorine tablet: 1 tablet in 40 litres of water = 25 ppm", "Test strip: read the colour code per the chlorine ppm instructions"],
-    chain: FOOD_CHAIN,
+    chain: [FOOD_CHAIN[0], { ...FOOD_CHAIN[1], label: "Reviewed by" }, { ...FOOD_CHAIN[2], label: "Noted by" }, FOOD_CHAIN[3]],
   },
   {
     id: "ccp-02", code: "CCP-RF-02", title: "Product Cooking — Final Internal Temperature", dept: "food", category: "CCP records", frequency: "Per meal",
@@ -417,16 +435,25 @@ const food: FormTemplate[] = [
         { key: "undated", label: "Un-dated", type: "yesno", flagOn: ["Yes"] },
       ],
     }],
-    chain: [{ ...FOOD_CHAIN[0], org: "Food Production Section" }, ...FOOD_CHAIN.slice(1)],
+    chain: [FOOD_CHAIN[0], FOOD_CHAIN[1], FOOD_CHAIN[2], { label: "Approved by", title: "Food Production Section", org: "King Fahad Medical City", roles: ["Food Safety Section"] }],
   },
   {
     id: "oprp-06", code: "OPRP-RF-06", title: "Dish Washing Machine", dept: "food", category: "OPRP records", frequency: "Daily",
     source: "OPRP 06", header: [fh.date],
     sections: [{
-      title: "Readings", rows: ["5:00 AM", "9:00 AM", "1:00 PM", "5:00 PM", "9:00 PM"],
-      columns: [1, 2, 3, 4, 5, 6].map((n) => ({ key: `t${n}`, label: `Temp ${n}`, type: "temp" as const, unit: "°C" })),
+      title: "Readings", rows: ["5:00 AM", "9:00 AM", "1:00 PM", "5:00 PM", "9:00 PM"], recheck: 15,
+      columns: [
+        { key: "t1", label: "Temp 1 · Pre-wash", type: "temp", unit: "°C", min: 40, max: 50 },
+        { key: "t2", label: "Temp 2 · Power wash 1", type: "temp", unit: "°C", min: 60, max: 65 },
+        { key: "t3", label: "Temp 3 · Power wash 2", type: "temp", unit: "°C", min: 60, max: 65 },
+        { key: "t4", label: "Temp 4 · Power rinse", type: "temp", unit: "°C", min: 60, max: 70 },
+        { key: "t5", label: "Temp 5 · Final rinse", type: "temp", unit: "°C", min: 82, max: 85 },
+        { key: "t6", label: "Temp 6 · Drying", type: "temp", unit: "°C", min: 65, max: 75 },
+        { key: "checkedBy", label: "Checked by", type: "text" },
+      ],
     }],
-    chain: FOOD_CHAIN,
+    limits: ["Pre-wash 40–50 °C · power wash 1 & 2 60–65 °C · power rinse 60–70 °C · final rinse 82–85 °C (critical: never below 82 °C) · drying 65–75 °C", "An out-of-range reading is re-checked after 15 minutes; if still out, it is flagged for inspection"],
+    chain: [{ label: "Checked by", title: "Maintenance Technician", org: "Contractor", roles: ["Maintenance Technician"] }, ...FOOD_CHAIN.slice(1)],
   },
   {
     id: "fryer-temp", code: "ID-FMSM FRYER-TEMP", title: "Fryer Temperature", dept: "food", category: "Equipment", frequency: "Daily",
@@ -451,8 +478,10 @@ const food: FormTemplate[] = [
   {
     id: "room-temp", code: "KFMC-FSMS-PRP:ATT:04", title: "Daily Room Temperature Monitoring", dept: "food", category: "Monitoring", frequency: "Daily",
     source: "Room temperature monitoring", header: [{ key: "room", label: "Room / location", type: "select", options: ["Plastic store / formula", "Dry store", "General store", "Daily store", "Bakery"] }, fh.date],
-    sections: [{ title: "Readings", rows: ["5:00 AM", "1:00 PM", "9:00 PM"], columns: [{ key: "temp", label: "Temp", type: "temp", unit: "°C" }, { key: "humidity", label: "Humidity", type: "number", unit: "%" }] }],
-    chain: FOOD_CHAIN, registerKey: "room",
+    sections: [{ title: "Readings", rows: ["5:00 AM", "1:00 PM", "9:00 PM"], recheck: 15, columns: [{ key: "temp", label: "Temp", type: "temp", unit: "°C", max: 24.5 }, { key: "humidity", label: "Humidity", type: "number", unit: "%" }] }],
+    limits: ["Room temperature 24.5 °C or below", "An out-of-range reading is re-checked after 15 minutes, with the corrective action recorded"],
+    chain: [{ label: "Checked by", title: "Food Safety Specialist", org: "Contractor", roles: ["Food Safety Specialist", "Food Safety Team"] }, { label: "Reviewed by", title: "Management of Contractor", org: "SMEH", roles: ["Contractor Management"] }, FOOD_CHAIN[3]],
+    registerKey: "room",
   },
   {
     id: "water", code: "KFMC-FSMS-PRP:ATT:02", title: "Daily Water Physical Inspection", dept: "food", category: "Monitoring", frequency: "Daily",
@@ -483,16 +512,23 @@ const food: FormTemplate[] = [
     source: "PEST CONTROL PREVENTION SHEET", header: [{ key: "date", label: "Date of visit", type: "date" }, { key: "contractor", label: "Pest control contractor", type: "text" }],
     sections: [{
       title: "Installed areas", addRows: "Area",
-      rows: ["Receiving area", "Lockers room", "General store room", "Salad room", "Vegetable room", "Butcher room", "Fish room", "Bakery room", "In-patient formula room", "Preparation room", "Daily store room", "Hot kitchen", "Tray line", "Male staff dining area", "Pot wash room", "Dishwashing room"],
+      rows: ["Receiving area", "Lockers room", "General store room", "Salad room", "Vegetable room", "Butcher room", "Fish room", "Bakery room", "In-patient formula room", "Preparation room", "Daily store room", "Hot kitchen", "Tray line", "Male staff dining area", "Cafeteria", "Pot wash room", "Dishwashing room"],
       columns: [
-        { key: "method", label: "Treatment", type: "select", options: ["Sprayed", "Baits", "Rat glue traps", "Fly killers", "Gel baits"] },
+        { key: "method", label: "Treatment", type: "multi", options: ["Fly killers", "Rat glue traps", "Sprayed", "Baits"] },
         { key: "product", label: "Products used", type: "text" },
         { key: "sighted", label: "Pest sighted?", type: "yesno", flagOn: ["Yes"] },
         { key: "types", label: "Types & number", type: "text" },
-        { key: "dosage", label: "Dosage", type: "text" },
+        { key: "dosage", label: "Dosage range", type: "text" },
+        { key: "targeted", label: "Targeted areas", type: "text" },
+        { key: "remarks", label: "Remarks", type: "text" },
       ],
     }],
-    chain: FOOD_CHAIN,
+    chain: [
+      { label: "Treated by", title: "Pest Control Contractor", org: "Pest control company", roles: ["Pest Control Contractor"] },
+      { label: "Checked by", title: "Food Safety Officer", org: "Contractor", roles: ["Food Safety Specialist"] },
+      { label: "Reviewed by", title: "Project Manager", org: "SMEH", roles: ["Contractor Management"] },
+      { label: "Approved by", title: "KFMC Dietician Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] },
+    ],
   },
   {
     id: "cleaning-schedule", code: "KFMC-FSMS-PRP:ATT:03", title: "Cleaning Checklist and Schedule", dept: "food", category: "Cleaning", frequency: "Daily",
@@ -527,23 +563,26 @@ const food: FormTemplate[] = [
       columns: [{ key: "location", label: "Location", type: "text" }, { key: "ice", label: "Iced water", type: "temp", unit: "°C", min: -1, max: 1 }, { key: "boil", label: "Boiling water", type: "temp", unit: "°C", min: 99, max: 101 }],
     }],
     limits: ["Reference points 0 °C (iced water) and 100 °C (boiling water); ±1 °C tolerance"],
-    chain: FOOD_CHAIN,
+    chain: [{ label: "Calibrated by", title: "Diet Technician", org: "Contractor", roles: ["Diet Technician"] }, ...FOOD_CHAIN.slice(1)],
   },
   {
     id: "thermo-ack", code: "KFMC-FSMS-PRP:ATT:06A", title: "Thermometer Acknowledgement", dept: "food", category: "Equipment", frequency: "Per event",
     source: "Thermometer Acknowledgement Form", header: [fh.date],
-    sections: [{ title: "Issued thermometers", rows: Array.from({ length: 16 }, (_, i) => `Thermometer ${String(i + 1).padStart(2, "0")}`), columns: [{ key: "person", label: "Responsible person", type: "text" }, { key: "received", label: "Date received", type: "date" }] }],
-    chain: [FOOD_CHAIN[1], FOOD_CHAIN[3]],
+    sections: [{ title: "Issued thermometers", rows: Array.from({ length: 16 }, (_, i) => `Thermometer ${String(i + 1).padStart(2, "0")}`), columns: [{ key: "person", label: "Responsible person", type: "text" }, { key: "received", label: "Date received", type: "date" }, { key: "signature", label: "Signature on receipt", type: "text" }] }],
+    limits: ["No approval chain: each responsible person signs on receipt of their thermometer"],
+    chain: [{ label: "Issued by", title: "Food Safety Specialist", org: "Contractor", roles: ["Food Safety Specialist", "Food Safety Team"] }],
   },
   {
-    id: "ppm", code: "F&N-PPM-2026", title: "PPM Facility Equipment Schedule", dept: "food", category: "Equipment", frequency: "Monthly",
-    source: "PPM Facility Equipment Schedule", header: [{ key: "month", label: "Month", type: "text" }, { key: "area", label: "Area", type: "select", options: kitchenAreas }],
+    id: "ppm", code: "KFMC-FSMS-PRP:ATT:02", title: "PPM Facility Equipment Schedule 2026", dept: "food", category: "Equipment", frequency: "Monthly",
+    source: "PPM Facility Equipment Schedule (rev. 26 Aug 2026)", header: [{ key: "month", label: "Month", type: "text" }, { key: "area", label: "Area", type: "select", options: ppmAreas.map((a) => `${a.code} · ${a.name}`) }],
     sections: [{
       title: "Equipment", addRows: "Equipment",
-      rows: ["Wash basin #01", "Sink #02", "Table #03", "Table #04", "PPE #05", "Tissue dispenser #06", "Air curtain #07", "Air curtain #08", "Shelves stainless #09", "Shelves stainless #10", "Shelves stainless #11", "Shelves stainless #12", "Air shower machine #13"],
-      columns: [{ key: "week", label: "Scheduled", type: "select", options: ["1st week", "2nd week", "3rd week", "4th week"] }, { key: "done", label: "PPM done", type: "yesno" }],
+      rows: [], rowsBy: { key: "area", map: Object.fromEntries(ppmAreas.map((a) => [`${a.code} · ${a.name}`, a.equipment])) },
+      columns: [{ key: "week", label: "Planned", type: "select", options: ["1st week", "2nd week", "3rd week", "4th week"], default: "1st week" }, { key: "done", label: "PPM done", type: "yesno" }, { key: "doneOn", label: "Date done", type: "date" }],
     }],
-    chain: FOOD_CHAIN, registerKey: "area",
+    limits: ["Every item is planned for the 1st week of each month (2026 plan)"],
+    chain: [{ label: "Reviewed by", title: "Management of Contractor", org: "SMEH", roles: ["Contractor Management"] }, FN_DEPT],
+    registerKey: "area",
   },
   {
     id: "dry-qty", code: "F&N-DRY-QC", title: "Dry Items Quantity Control", dept: "food", category: "Stores", frequency: "Per delivery",
@@ -574,15 +613,28 @@ const food: FormTemplate[] = [
   {
     id: "traceability", code: "F&N-MT", title: "Meal Traceability · Diet List Summary", dept: "food", category: "Patient meals", frequency: "Per meal",
     source: "Meal Traceability (Maternity Hospital 1–3 of 3)", header: [fh.date, { key: "hospital", label: "Hospital", type: "select", options: hospitals }, fh.meal],
-    sections: [{
-      title: "Trays per ward", rows: ["Normal", "Low fat / low chol", "High fiber", "Low sodium", "DM", "Renal", "Renal ESRD 9-B", "Renal dialysis", "Insulin dependent", "Restricted fat", "Soft", "High cal / high pro", "Liquid", "Postpartum", "Soft DM", "Soft renal", "Puree", "Lactose free", "Gluten free", "Tube feeding", "Ped 1–3 yrs", "Ped 4–6 yrs", "Ped 7–12 yrs"],
-      columns: ["2-4", "3-3", "M-1-H", "2-1", "2-2", "ICU", "2-3", "3-1", "3-4"].map((ward) => ({ key: `w${ward}`, label: ward, type: "number" as const })),
-    }],
-    chain: [{ label: "Prepared by", title: "Nutrition Supervisor", org: "Contractor", roles: ["Nutrition Supervisor"] }, { label: "Noted by", title: "Food Safety Specialist", org: "Contractor", roles: ["Food Safety Specialist"] }, { label: "Reviewed by", title: "KFMC Food & Nutrition Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] }],
+    sections: [
+      {
+        title: "Trays per ward",
+        rows: ["Normal", "Low fat / low chol", "High fiber", "Low fiber", "Low sodium", "Restricted sodium", "DM", "Renal", "Renal ESRD 9-B", "Renal dialysis", "Insulin dependent", "Restricted fat", "Soft", "Soft DM", "Soft renal", "Soft cardiac", "High cal / high pro", "Liquid", "Postpartum", "Puree", "Lactose free", "Gluten free", "High fat diet", "Tube feeding", "Hepatic (low sodium, low salt, high protein)", "Iodine free", "Iodine free DM", "Low potassium", "Low protein", "Low copper", "Low iron", "Low carbohydrate", "Ketogenic", "G6PD", "GE rate", "Ped 6–12 months", "Ped 1–3 yrs", "Ped 4–6 yrs", "Ped 7–12 yrs"],
+        columns: [],
+        columnsBy: { key: "hospital", map: Object.fromEntries(hospitals.map((h) => [h, hospitalWards[h].map((w) => ({ key: `w${w}`, label: w, type: "number" as const }))])) },
+      },
+      {
+        title: "Ward sign-off",
+        rows: [], rowsBy: { key: "hospital", map: hospitalWards },
+        columns: [{ key: "signature", label: "Signature", type: "text" }, { key: "contact", label: "Contact person", type: "text" }, { key: "ext", label: "Extension", type: "text" }, { key: "pager", label: "Pager no.", type: "text" }],
+      },
+    ],
+    chain: [
+      { label: "Noted by", title: "Food Safety Specialist", org: "Contractor", roles: ["Food Safety Specialist"] },
+      { label: "Reviewed by", title: "KFMC Food & Nutrition Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] },
+      { label: "Approved by", title: "Head of Food Distribution", org: "King Fahad Medical City", roles: ["Head of Food Distribution"] },
+    ],
   },
   {
     id: "patient-meal", code: "F&N-PMI", title: "Patient Meals Daily Inspection Report", dept: "food", category: "Patient meals", frequency: "Daily",
-    source: "Patients Meal Daily Inspection Report (Oct 2026)", header: [{ key: "ward", label: "Ward", type: "text" }, fh.date, { key: "type", label: "Type of inspection", type: "select", options: ["Routine", "Follow up"] }],
+    source: "Patients Meal Daily Inspection Report (Oct 2026)", header: [{ key: "ward", label: "Ward", type: "text" }, fh.date, { key: "type", label: "Type of inspection", type: "select", options: ["Routine", "Follow up"] }, { key: "compliant", label: "Compliant", type: "select", options: ["Yes", "No"] }],
     sections: [{
       title: "Patients visited", addRows: "Room / bed",
       rows: [],
@@ -596,7 +648,13 @@ const food: FormTemplate[] = [
       ],
     }],
     limits: ["Patients should be asked about meal temperature and quality"],
-    chain: NUT_CHAIN, registerKey: "ward",
+    chain: [
+      { label: "Inspected by", title: "Inspector (Nutrition Supervisor)", org: "Contractor", roles: ["Nutrition Supervisor"] },
+      { label: "Review & action", title: "Assistant Project Manager", org: "SMEH", roles: ["Contractor Management"] },
+      { label: "Remarks by", title: "KFMC Food & Nutrition Specialist", org: "King Fahad Medical City", roles: ["Food Safety Section"] },
+      { label: "Approved by", title: "Head of Section", org: "King Fahad Medical City", roles: ["F&N Services Department"] },
+    ],
+    registerKey: "ward",
   },
   {
     id: "selective-menu", code: "F&N-SMR", title: "Reasons of Not Distributing the Selective Menu", titleAr: "سبب عدم توزيع قائمة الطعام للمريض", dept: "food", category: "Patient meals", frequency: "Daily",
@@ -617,12 +675,15 @@ const food: FormTemplate[] = [
         columns: [
           { key: "loaded", label: "Loaded trays", type: "number" },
           { key: "depart", label: "Departure", type: "time" },
+          { key: "porter", label: "Porter (sign & ID no.)", type: "text" },
           { key: "arrive", label: "Arrival in ward", type: "time" },
           { key: "start", label: "Start distribution", type: "time" },
           { key: "finish", label: "Finish distribution", type: "time" },
           { key: "distributed", label: "Distributed", type: "number" },
           { key: "isolation", label: "Isolation trays", type: "number" },
+          { key: "nurseAck", label: "Isolation trays received by nurse", type: "text" },
           { key: "collected", label: "Collected trays", type: "number" },
+          { key: "collector", label: "Collected by (ID no.)", type: "text" },
         ],
       },
       {
@@ -630,8 +691,12 @@ const food: FormTemplate[] = [
         columns: [{ key: "mrn", label: "MRN", type: "text" }, { key: "diet", label: "Diet", type: "text" }, { key: "trays", label: "Trays", type: "number" }, { key: "reason", label: "Reason", type: "select", options: ["OOP · Out on pass", "CD · Change diet", "SL · Sleeping", "NR · Not in the room", "DC · Discharged", "DF · Dislike food", "O · Others"] }],
         note: "Per CPP Patient Meal Distribution 5.1.16, the nurse draws trays from the hot and cold waiting trolley when not consumed.",
       },
+      {
+        title: "Second collection · uncollected trays", addRows: "Room no.", rows: [],
+        columns: [{ key: "trays", label: "Trays collected", type: "number" }, { key: "time", label: "Time", type: "time" }, { key: "collector", label: "Collected by (name / ID)", type: "text" }, { key: "nurse", label: "Acknowledged by nurse", type: "text" }],
+      },
     ],
-    chain: [{ label: "Loader / food server", title: "Food Server", org: "Contractor", roles: ["Nutrition Supervisor"] }, { label: "Acknowledged by", title: "Nursing (isolation trays)", org: "KFMC Nursing", roles: ["Nutrition Supervisor"] }, { label: "Reviewed by", title: "Asst. Project Manager", org: "SMEH", roles: ["Contractor Management"] }],
+    chain: [{ label: "Checked by", title: "Nutrition Supervisor", org: "Contractor", roles: ["Nutrition Supervisor"] }, { label: "Reviewed by", title: "Management", org: "SMEH", roles: ["Contractor Management"] }],
     registerKey: "ward",
   },
   {
@@ -705,18 +770,45 @@ export type FormRecord = {
 }
 
 export const cellKey = (s: number, r: number, c: string) => `${s}:${r}:${c}`
-export const rowsOf = (t: FormTemplate, rec: Pick<FormRecord, "extraRows">, s: number) => [...t.sections[s].rows, ...(rec.extraRows[s] || [])]
+type RecLike = Pick<FormRecord, "values" | "header" | "extraRows">
+export const rowsOf = (t: FormTemplate, rec: Pick<FormRecord, "extraRows" | "header">, s: number) => {
+  const sec = t.sections[s]
+  const base = sec.rowsBy ? sec.rowsBy.map[rec.header?.[sec.rowsBy.key] || ""] || [] : sec.rows
+  return [...base, ...(rec.extraRows[s] || [])]
+}
+export const colsOf = (t: FormTemplate, rec: Pick<FormRecord, "header">, s: number): Column[] => {
+  const sec = t.sections[s]
+  return sec.columnsBy ? sec.columnsBy.map[rec.header?.[sec.columnsBy.key] || ""] || [] : sec.columns
+}
+export const optionsOf = (h: HeaderField, header: Record<string, string>) => (h.optionsBy ? h.optionsBy.map[header[h.optionsBy.key] || ""] || h.options || [] : h.options || [])
+/** Stored value, or the column default. */
+export const val = (rec: Pick<FormRecord, "values">, s: number, r: number, col: Column) => rec.values[cellKey(s, r, col.key)] ?? col.default ?? ""
+export const recheckKey = (s: number, r: number, c: string) => `${s}:${r}:${c}__re`
 const toMin = (v: string) => {
   const [h, m] = v.split(":").map(Number)
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN
 }
 const today = () => new Date().toISOString().slice(0, 10)
 
-/** Returns a reason when the cell value is a non-conformity, otherwise "". */
-export function cellIssue(t: FormTemplate, rec: Pick<FormRecord, "values" | "header" | "extraRows">, s: number, r: number, col: Column): string {
+function limitOf(t: FormTemplate, rec: RecLike, s: number, r: number, col: Column): Limit {
   const section = t.sections[s]
   const row = rowsOf(t, rec, s)[r]
-  const v = (rec.values[cellKey(s, r, col.key)] || "").trim()
+  let limit: Limit = { min: col.min, max: col.max }
+  if (section.rowLimits?.[row] && colsOf(t, rec, s).find((c) => c.type === "temp")?.key === col.key) limit = section.rowLimits[row]
+  if (col.limitsBy) limit = col.limitsBy.map[rec.values[cellKey(s, r, col.limitsBy.key)] || rec.header[col.limitsBy.key] || ""] || limit
+  return limit
+}
+function numberIssue(n: number, limit: Limit, unit = "") {
+  if (limit.min !== undefined && n < limit.min) return `${n}${unit} below ${limit.min}${unit}`
+  if (limit.max !== undefined && n > limit.max) return `${n}${unit} above ${limit.max}${unit}`
+  return ""
+}
+
+/** Returns a reason when the cell value is a non-conformity, otherwise "". */
+export function cellIssue(t: FormTemplate, rec: RecLike, s: number, r: number, col: Column): string {
+  const section = t.sections[s]
+  const row = rowsOf(t, rec, s)[r]
+  const v = val(rec, s, r, col).trim()
   if (!v) return ""
   if (col.type === "yesno") {
     const bad = col.flagOn || (section.inverted?.includes(row) ? ["Yes"] : ["No"])
@@ -724,6 +816,7 @@ export function cellIssue(t: FormTemplate, rec: Pick<FormRecord, "values" | "hea
   }
   if (col.type === "sumna") return v === "U" ? "Unsatisfactory" : ""
   if (col.type === "select" || col.type === "rating") return col.flagOn?.includes(v) ? v : ""
+  if (col.type === "multi") return v.split(", ").some((x) => col.flagOn?.includes(x)) ? v : ""
   if (col.type === "date") return col.future && v < today() ? "Expired" : ""
   if (col.type === "time" && col.within) {
     const from = toMin(rec.values[cellKey(s, r, col.within.from)] || "")
@@ -735,43 +828,44 @@ export function cellIssue(t: FormTemplate, rec: Pick<FormRecord, "values" | "hea
   if (col.type === "temp" || col.type === "number") {
     const n = Number(v)
     if (!Number.isFinite(n)) return "Not a number"
-    let limit: Limit = { min: col.min, max: col.max }
-    if (section.rowLimits?.[row] && section.columns.find((c) => c.type === "temp")?.key === col.key) limit = section.rowLimits[row]
-    if (col.limitsBy) {
-      const by = rec.values[cellKey(s, r, col.limitsBy.key)] || rec.header[col.limitsBy.key] || ""
-      limit = col.limitsBy.map[by] || limit
-    }
-    if (limit.min !== undefined && n < limit.min) return `${n}${col.unit || ""} below ${limit.min}${col.unit || ""}`
-    if (limit.max !== undefined && n > limit.max) return `${n}${col.unit || ""} above ${limit.max}${col.unit || ""}`
+    return numberIssue(n, limitOf(t, rec, s, r, col), col.unit)
   }
   return ""
 }
-export function limitText(t: FormTemplate, rec: Pick<FormRecord, "values" | "header" | "extraRows">, s: number, r: number, col: Column) {
-  const section = t.sections[s]
-  const row = rowsOf(t, rec, s)[r]
-  let limit: Limit = { min: col.min, max: col.max }
-  if (section.rowLimits?.[row] && section.columns.find((c) => c.type === "temp")?.key === col.key) limit = section.rowLimits[row]
-  if (col.limitsBy) limit = col.limitsBy.map[rec.values[cellKey(s, r, col.limitsBy.key)] || rec.header[col.limitsBy.key] || ""] || limit
+export function limitText(t: FormTemplate, rec: RecLike, s: number, r: number, col: Column) {
+  const limit = limitOf(t, rec, s, r, col)
   if (limit.min !== undefined && limit.max !== undefined) return `${limit.min}–${limit.max}${col.unit || ""}`
   if (limit.min !== undefined) return `≥ ${limit.min}${col.unit || ""}`
   if (limit.max !== undefined) return `≤ ${limit.max}${col.unit || ""}`
   return ""
 }
+/** Re-check state of an out-of-limit numeric reading on a section that requires re-checks. */
+export function recheckOf(t: FormTemplate, rec: RecLike, s: number, r: number, col: Column): { needed: boolean; value: string; state: "" | "pending" | "resolved" | "inspection" } {
+  const needed = Boolean(t.sections[s].recheck && (col.type === "temp" || col.type === "number") && cellIssue(t, rec, s, r, col))
+  const value = (rec.values[recheckKey(s, r, col.key)] || "").trim()
+  if (!needed) return { needed, value, state: "" }
+  if (!value) return { needed, value, state: "pending" }
+  const still = numberIssue(Number(value), limitOf(t, rec, s, r, col), col.unit)
+  return { needed, value, state: still ? "inspection" : "resolved" }
+}
 
-export type Issue = { s: number; r: number; row: string; col: string; reason: string }
-export function issuesOf(t: FormTemplate, rec: Pick<FormRecord, "values" | "header" | "extraRows">): Issue[] {
+export type Issue = { s: number; r: number; row: string; col: string; reason: string; recheck?: string }
+export function issuesOf(t: FormTemplate, rec: RecLike): Issue[] {
   const out: Issue[] = []
   t.sections.forEach((section, s) =>
     rowsOf(t, rec, s).forEach((row, r) =>
-      section.columns.forEach((col) => {
+      colsOf(t, rec, s).forEach((col) => {
         const reason = cellIssue(t, rec, s, r, col)
-        if (reason) out.push({ s, r, row, col: col.label, reason })
+        if (!reason) return
+        const re = recheckOf(t, rec, s, r, col)
+        out.push({ s, r, row, col: col.label, reason, recheck: re.state === "resolved" ? `re-checked ${re.value}${col.unit || ""} after ${section.recheck} min — within limit` : re.state === "inspection" ? `re-checked ${re.value}${col.unit || ""} — still out, flagged for inspection` : re.state === "pending" ? `re-check due in ${section.recheck} min` : undefined })
       }),
     ),
   )
   return out
 }
-/** Every row needs an answer; every non-conformity, "No" or "N/A" needs a corrective action / remark. */
+export const needsInspection = (t: FormTemplate, rec: RecLike) => issuesOf(t, rec).some((x) => x.recheck?.includes("inspection"))
+/** Every row needs an answer; every non-conformity, "No" or "N/A" needs a corrective action / remark; re-checks must be recorded. */
 export function validate(t: FormTemplate, rec: FormRecord): string[] {
   const problems: string[] = []
   t.header.forEach((h) => {
@@ -779,18 +873,20 @@ export function validate(t: FormTemplate, rec: FormRecord): string[] {
   })
   let empty = 0
   let missingAction = 0
-  t.sections.forEach((section, s) =>
+  let missingRecheck = 0
+  t.sections.forEach((section, s) => {
+    const cols = colsOf(t, rec, s)
     rowsOf(t, rec, s).forEach((_, r) => {
-      const answered = section.columns.some((c) => (rec.values[cellKey(s, r, c.key)] || "").trim())
+      const answered = cols.some((c) => !c.default && val(rec, s, r, c).trim())
       if (!answered) empty++
-      const needsAction =
-        section.columns.some((c) => cellIssue(t, rec, s, r, c)) ||
-        section.columns.some((c) => (c.type === "yesno" || c.type === "sumna") && ["N/A"].includes(rec.values[cellKey(s, r, c.key)] || ""))
+      const needsAction = cols.some((c) => cellIssue(t, rec, s, r, c)) || cols.some((c) => (c.type === "yesno" || c.type === "sumna") && val(rec, s, r, c) === "N/A")
       if (needsAction && !(rec.values[cellKey(s, r, "__action")] || "").trim()) missingAction++
-    }),
-  )
+      if (cols.some((c) => recheckOf(t, rec, s, r, c).state === "pending")) missingRecheck++
+    })
+  })
   if (empty) problems.push(`${empty} row${empty === 1 ? " has" : "s have"} no answer`)
   if (missingAction) problems.push(`${missingAction} non-conforming or N/A row${missingAction === 1 ? " needs" : "s need"} a corrective action / remark`)
+  if (missingRecheck) problems.push(`${missingRecheck} out-of-limit reading${missingRecheck === 1 ? " needs" : "s need"} the re-check value`)
   if (t.photoRequired && !rec.photos.length) problems.push("Attach at least one photo as evidence")
   return problems
 }
@@ -800,7 +896,7 @@ export const canSign = (t: FormTemplate, rec: FormRecord, role: string) =>
 export const canFill = (t: FormTemplate, role: string) => t.chain[0].roles.includes(role)
 
 /* ───────────── Housing / store wrapper ───────────── */
-export const formsKey = "kfmc-dept-forms-v1"
+export const formsKey = "kfmc-dept-forms-v2"
 export type FormsDb = { records: FormRecord[]; seq: Record<string, number> }
 
 export function nextRef(db: FormsDb, t: FormTemplate): [string, FormsDb] {
@@ -819,7 +915,7 @@ function seedForms(): FormsDb {
     const t = templateById(templateId)!
     const ref = t.dept === "housekeeping" ? `HK-${++hk}` : `FN-${++fn}`
     const signatures: Signature[] = []
-    const signers: Record<string, string> = { "Team Leader": "Khalid Al-Otaibi", Supervisor: "Faisal Al-Harbi", "General Supervisor": "Tariq Al-Zahrani", "Housekeeping Section Head": "Madeah Al-Shehri", Chef: "Chef Ramesh Kumar", "Food Safety Team": "Joy Santos", "Food Safety Specialist": "Hanan Al-Buraidi", "Contractor Management": "Ahmed Azab", "Food Safety Section": "Ahlam Al-Qahtani", "Food Storekeeper": "Imran Sheikh", "Nutrition Supervisor": "Aisha Al-Qarni" }
+    const signers: Record<string, string> = { "Team Leader": "Khalid Al-Otaibi", Supervisor: "Faisal Al-Harbi", "General Supervisor": "Tariq Al-Zahrani", "Housekeeping Section Head": "Madeah Al-Shehri", Chef: "Chef Ramesh Kumar", "Food Safety Team": "Joy Santos", "Food Safety Specialist": "Hanan Al-Buraidi", "Contractor Management": "Ahmed Azab", "Food Safety Section": "Ahlam Al-Qahtani", "Food Storekeeper": "Imran Sheikh", "Nutrition Supervisor": "Aisha Al-Qarni", "F&N Services Department": "Dr. Nawal Al-Harbi", "Maintenance Technician": "Sanjay Pillai", "Diet Technician": "Mariam Al-Juhani", "Pest Control Contractor": "Rashid Pest Control", "Head of Food Distribution": "Fahad Al-Mutlaq" }
     const signedUpTo = status === "Approved" ? t.chain.length : status === "Draft" ? 0 : step
     for (let i = 0; i < signedUpTo; i++) {
       const role = t.chain[i].roles[0]
@@ -833,15 +929,15 @@ function seedForms(): FormsDb {
     return { ...v, ...extra }
   }
   // Housekeeping
-  const room = { hospital: "KFMC Main Hospital", floor: "Floor 4", ward: "Ward 4A", pattern: "3-shift ward", isolation: "Non-isolation" }
+  const room = { hospital: "Main Hospital", floor: "Floor 4", ward: "Ward 4A", pattern: "3-shift ward", isolation: "Non-isolation" }
   make("hk-patient-room", { ...room, room: "4A-12", date: day(0), shift: "1st" }, (t) => allYes(t), "In review", 1, "Khalid Al-Otaibi", 2)
   make("hk-patient-room", { ...room, room: "4A-14", date: day(0), shift: "1st", isolation: "Isolation" }, (t) => allYes(t, { [cellKey(1, 0, "done")]: "No", [cellKey(1, 0, "__action")]: "Hypochlorite stock out at ward store — refilled from central store and re-done at 09:40" }), "In review", 2, "Khalid Al-Otaibi", 3)
   make("hk-patient-room", { ...room, room: "4A-12", date: day(1), shift: "3rd" }, (t) => allYes(t), "Approved", 4, "Khalid Al-Otaibi", 20)
   make("hk-patient-room", { ...room, room: "4A-12", date: day(1), shift: "2nd" }, (t) => allYes(t), "Approved", 4, "Khalid Al-Otaibi", 28)
   make("hk-patient-room", { ...room, room: "4A-12", date: day(1), shift: "1st" }, (t) => allYes(t), "Approved", 4, "Khalid Al-Otaibi", 34)
-  make("hk-ward-hallway", { hospital: "KFMC Main Hospital", floor: "Floor 4", ward: "Ward 4A", date: day(0), pattern: "3-shift ward", shift: "1st" }, (t) => allYes(t, { ...Object.fromEntries([0, 1, 2, 3, 4, 5].map((r) => [cellKey(2, r, "done"), "N/A"])), ...Object.fromEntries([0, 1, 2, 3, 4, 5].map((r) => [cellKey(2, r, "__action"), "Not scheduled today — waxing on Thursday"])) }), "In review", 3, "Khalid Al-Otaibi", 4)
-  make("hk-terminal-critical", { hospital: "KFMC Main Hospital", area: "ICU", room: "ICU-06", date: day(0), isolationSign: "Yes", reason: "Discharge" }, (t) => allYes(t), "Returned", 0, "Khalid Al-Otaibi", 5, {}, "")
-  make("hk-uv-fumigation", { hospital: "KFMC Main Hospital", location: "ICU", date: day(0) }, () => ({ [cellKey(0, 0, "machine")]: "UV", [cellKey(0, 0, "start")]: "08:10", [cellKey(0, 0, "end")]: "08:40", [cellKey(0, 0, "duration")]: "30", [cellKey(0, 0, "nurse")]: "N. Rahma", [cellKey(0, 0, "by")]: "K. Al-Otaibi / 1101" }), "In review", 1, "Khalid Al-Otaibi", 1, { 0: ["ICU-06"] })
+  make("hk-ward-hallway", { hospital: "Main Hospital", floor: "Floor 4", ward: "Ward 4A", date: day(0), pattern: "3-shift ward", shift: "1st" }, (t) => allYes(t, { ...Object.fromEntries([0, 1, 2, 3, 4, 5].map((r) => [cellKey(2, r, "done"), "N/A"])), ...Object.fromEntries([0, 1, 2, 3, 4, 5].map((r) => [cellKey(2, r, "__action"), "Not scheduled today — waxing on Thursday"])) }), "In review", 3, "Khalid Al-Otaibi", 4)
+  make("hk-terminal-critical", { hospital: "Main Hospital", area: "ICU", room: "ICU-06", date: day(0), isolationSign: "Yes", reason: "Discharge" }, (t) => allYes(t), "Returned", 0, "Khalid Al-Otaibi", 5, {}, "")
+  make("hk-uv-fumigation", { hospital: "Main Hospital", location: "ICU", date: day(0) }, () => ({ [cellKey(0, 0, "machine")]: "UV", [cellKey(0, 0, "start")]: "08:10", [cellKey(0, 0, "end")]: "08:40", [cellKey(0, 0, "duration")]: "30", [cellKey(0, 0, "nurse")]: "N. Rahma", [cellKey(0, 0, "by")]: "K. Al-Otaibi / 1101" }), "In review", 1, "Khalid Al-Otaibi", 1, { 0: ["ICU-06"] })
   // Food
   make("ccp-02", { date: day(0), meal: "Lunch", site: "Kitchen" }, () => ({ [cellKey(0, 0, "temp")]: "78", [cellKey(0, 1, "temp")]: "80", [cellKey(0, 2, "temp")]: "85", [cellKey(0, 3, "temp")]: "72", [cellKey(0, 4, "temp")]: "76", [cellKey(0, 5, "temp")]: "71", [cellKey(0, 5, "__action")]: "Returned to oven 6 min — re-probed 77 °C", [cellKey(0, 6, "temp")]: "68", [cellKey(0, 7, "temp")]: "70", [cellKey(0, 8, "temp")]: "79", [cellKey(0, 9, "temp")]: "66", ...Object.fromEntries([0, 1, 2, 3, 4, 5, 6, 7].map((r, i) => [cellKey(1, r, "temp"), String([75, 77, 69, 78, 70, 72, 74, 82][i])])) }), "In review", 1, "Chef Ramesh Kumar", 2)
   make("ccp-03", { date: day(0), meal: "Breakfast", site: "Kitchen" }, () => Object.fromEntries([0, 1, 2, 3, 4, 5, 6].flatMap((r, i) => [[cellKey(0, r, "mode"), "Hot"], [cellKey(0, r, "temp"), String([63, 65, 66, 64, 70, 68, 62][i])]])), "In review", 2, "Chef Ramesh Kumar", 6)
@@ -851,6 +947,8 @@ function seedForms(): FormsDb {
   make("ward-inspection", { ward: "Ward 3-1 (Maternity)", date: day(0), time: "11:30" }, (t) => ({ ...Object.fromEntries(t.sections[0].rows.map((row, r) => [cellKey(0, r, "answer"), t.sections[0].inverted?.includes(row) ? "No" : "Yes"])), [cellKey(0, 11, "answer")]: "Yes", [cellKey(0, 11, "__action")]: "6 lunch trays uncollected at 15:10 — porter called, collected 15:25" }), "In review", 1, "Aisha Al-Qarni", 2)
   make("oprp-01", { date: day(0), time: "06:40" }, () => ({ [cellKey(0, 0, "supplier")]: "Al-Watania Farms", [cellKey(0, 0, "qty")]: "40", [cellKey(0, 0, "temp")]: "4", [cellKey(0, 0, "expiry")]: day(-5), [cellKey(1, 0, "supplier")]: "Al-Watania Poultry", [cellKey(1, 0, "qty")]: "60", [cellKey(1, 0, "temp")]: "3", [cellKey(1, 0, "expiry")]: day(-4) }), "In review", 1, "Imran Sheikh", 5, { 0: ["Lettuce"], 1: ["Chicken breast"] })
   make("food-waste", { date: day(1) }, () => ({ [cellKey(0, 0, "total")]: "212", [cellKey(0, 0, "unused")]: "38", [cellKey(0, 0, "input")]: "174", [cellKey(0, 0, "compost")]: "21" }), "Approved", 3, "Joy Santos", 22)
+  make("oprp-06", { date: day(0) }, () => ({ ...Object.fromEntries([0, 1, 2].flatMap((r) => [[cellKey(0, r, "t1"), "45"], [cellKey(0, r, "t2"), "62"], [cellKey(0, r, "t3"), "63"], [cellKey(0, r, "t4"), "66"], [cellKey(0, r, "t5"), r === 2 ? "80" : "83"], [cellKey(0, r, "t6"), "70"], [cellKey(0, r, "checkedBy"), "S. Pillai"]])), [`0:2:t5__re`]: "83", [cellKey(0, 2, "__action")]: "Booster heater tripped — reset by maintenance, re-checked at 13:15" }), "In review", 1, "Sanjay Pillai", 2, { 0: [] })
+  make("ppm", { month: new Date().toLocaleDateString("en", { month: "long", year: "numeric" }), area: "A · Receiving Area" }, () => Object.fromEntries(Array.from({ length: 13 }, (_, r) => [[cellKey(0, r, "done"), "Yes"], [cellKey(0, r, "doneOn"), day(20)]]).flat()), "In review", 1, "Ahmed Azab", 30)
   return { records, seq: { HK: hk, FN: fn } }
 }
 

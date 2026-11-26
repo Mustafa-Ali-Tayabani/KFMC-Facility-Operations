@@ -6,6 +6,12 @@ import {
   canSign,
   cellIssue,
   cellKey,
+  colsOf,
+  needsInspection,
+  optionsOf,
+  recheckKey,
+  recheckOf,
+  val,
   formsKey,
   issuesOf,
   limitText,
@@ -114,7 +120,7 @@ export default function FormsModule({ dept, role, person, mobile, tab: initialTa
     if (submit) {
       rec = {
         ...rec,
-        status: "In review",
+        status: t.chain.length === 1 ? "Approved" : "In review",
         step: 1,
         signatures: [...rec.signatures, { step: 0, label: t.chain[0].label, role, name: person, at: new Date().toISOString(), action: "Signed" }],
       }
@@ -128,7 +134,7 @@ export default function FormsModule({ dept, role, person, mobile, tab: initialTa
     setDraft(null)
     setError([])
     setOpenId(rec.id)
-    toast(submit ? `${rec.ref} submitted to ${t.chain[1].title}` : `${rec.ref} saved as draft`)
+    toast(submit ? (t.chain.length === 1 ? `${rec.ref} signed and filed` : `${rec.ref} submitted to ${t.chain[1].title}`) : `${rec.ref} saved as draft`)
   }
   function sign(record: FormRecord, approve: boolean, comment = "") {
     const t = templateById(record.templateId)!
@@ -271,6 +277,7 @@ function RecordRow({ record, onOpen, highlight }: { record: FormRecord; onOpen: 
           {waiting && ` · waiting: ${waiting}`}
         </small>
       </div>
+      {needsInspection(t, record) && <b className="forms-flag">Inspection</b>}
       {issues > 0 && <b className="forms-flag">{issues} flag{issues === 1 ? "" : "s"}</b>}
       <b className={`m-pill ${statusTone(record.status)}`}>{record.status}</b>
       <Icon name="chevron" size={15} />
@@ -285,6 +292,18 @@ function Cell({ col, value, issue, limit, onChange, disabled }: { col: Column; v
       <span className={`forms-seg ${issue ? "bad" : ""}`}>
         {options.map((o) => (
           <button type="button" key={o} disabled={disabled} className={value === o ? `on v-${o.replace("/", "")}` : ""} onClick={() => onChange(value === o ? "" : o)}>
+            {o}
+          </button>
+        ))}
+      </span>
+    )
+  }
+  if (col.type === "multi") {
+    const picked = value ? value.split(", ") : []
+    return (
+      <span className="forms-multi">
+        {col.options?.map((o) => (
+          <button type="button" key={o} disabled={disabled} className={picked.includes(o) ? "on" : ""} onClick={() => onChange((picked.includes(o) ? picked.filter((x) => x !== o) : [...picked, o]).filter((x) => col.options?.includes(x)).sort((a, b) => col.options!.indexOf(a) - col.options!.indexOf(b)).join(", "))}>
             {o}
           </button>
         ))}
@@ -311,6 +330,18 @@ function Cell({ col, value, issue, limit, onChange, disabled }: { col: Column; v
         onChange={(e) => onChange(e.target.value)}
       />
       {col.unit && <i>{col.unit}</i>}
+    </span>
+  )
+}
+
+/** 15-minute re-check of an out-of-limit reading (dish washer, room temperature). */
+function Recheck({ t, record, s, r, c, onChange }: { t: FormTemplate; record: FormRecord; s: number; r: number; c: Column; onChange: (key: string, v: string) => void }) {
+  const re = recheckOf(t, record, s, r, c)
+  if (!re.needed) return null
+  return (
+    <span className={`forms-recheck ${re.state}`}>
+      <input type="number" step="any" inputMode="decimal" placeholder={`Re-check +${t.sections[s].recheck} min`} value={re.value} onChange={(e) => onChange(recheckKey(s, r, c.key), e.target.value)} aria-label={`${c.label} re-check`} />
+      <small>{re.state === "pending" ? "Re-check required" : re.state === "resolved" ? "Within limit" : "Still out · inspection"}</small>
     </span>
   )
 }
@@ -349,7 +380,7 @@ function FormEditor({ record, mobile, error, onChange, onCancel, onSave }: { rec
             {h.type === "select" ? (
               <select value={record.header[h.key] || ""} onChange={(e) => onChange({ ...record, header: { ...record.header, [h.key]: e.target.value } })}>
                 <option value="">Select…</option>
-                {h.options?.map((o) => <option key={o}>{o}</option>)}
+                {optionsOf(h, record.header).map((o) => <option key={o}>{o}</option>)}
               </select>
             ) : (
               <input type={h.type === "date" ? "date" : h.type === "time" ? "time" : h.type === "number" ? "number" : "text"} value={record.header[h.key] || ""} onChange={(e) => onChange({ ...record, header: { ...record.header, [h.key]: e.target.value } })} />
@@ -359,28 +390,31 @@ function FormEditor({ record, mobile, error, onChange, onCancel, onSave }: { rec
       </div>
       {t.sections.map((section, s) => {
         const rows = rowsOf(t, record, s)
+        const cols = colsOf(t, record, s)
+        if (!rows.length && !section.addRows) return <div className="forms-section" key={section.title}><h3>{section.title}</h3><p className="ops-muted">Choose {t.header.find((h) => h.key === (section.rowsBy || section.columnsBy)?.key)?.label.toLowerCase() || "the header fields"} above to load the rows.</p></div>
         return (
           <div className="forms-section" key={section.title}>
             <h3>{section.title}</h3>
             {section.note && <p className="ops-muted">{section.note}</p>}
-            {mobile || section.columns.length === 1 ? (
+            {mobile || cols.length === 1 ? (
               <div className="forms-cards">
                 {rows.map((row, r) => {
-                  const rowIssue = section.columns.some((c) => cellIssue(t, record, s, r, c))
-                  const na = section.columns.some((c) => record.values[cellKey(s, r, c.key)] === "N/A")
+                  const rowIssue = cols.some((c) => cellIssue(t, record, s, r, c))
+                  const na = cols.some((c) => val(record, s, r, c) === "N/A")
                   return (
                     <div key={`${row}-${r}`} className={`forms-card ${rowIssue ? "bad" : ""}`}>
                       <strong>{r + 1}. {row}</strong>
                       <div className="forms-card-cells">
-                        {section.columns.map((c) => {
+                        {cols.map((c) => {
                           const issue = cellIssue(t, record, s, r, c)
                           const limit = limitText(t, record, s, r, c)
                           return (
                             <label key={c.key}>
-                              {section.columns.length > 1 && <span>{c.label}{limit && <em> {limit}</em>}</span>}
-                              {section.columns.length === 1 && limit && <span><em>{limit}</em></span>}
-                              <Cell col={c} value={record.values[cellKey(s, r, c.key)] || ""} issue={issue} limit={limit} onChange={(v) => set(cellKey(s, r, c.key), v)} />
+                              {cols.length > 1 && <span>{c.label}{limit && <em> {limit}</em>}</span>}
+                              {cols.length === 1 && limit && <span><em>{limit}</em></span>}
+                              <Cell col={c} value={val(record, s, r, c)} issue={issue} limit={limit} onChange={(v) => set(cellKey(s, r, c.key), v)} />
                               {issue && <small className="forms-issue">{issue}</small>}
+                              <Recheck t={t} record={record} s={s} r={r} c={c} onChange={set} />
                             </label>
                           )
                         })}
@@ -398,23 +432,24 @@ function FormEditor({ record, mobile, error, onChange, onCancel, onSave }: { rec
                   <thead>
                     <tr>
                       <th>{section.addRows || "Item"}</th>
-                      {section.columns.map((c) => <th key={c.key}>{c.label}</th>)}
+                      {cols.map((c) => <th key={c.key}>{c.label}</th>)}
                       <th>Corrective action / remark</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((row, r) => {
-                      const rowIssue = section.columns.some((c) => cellIssue(t, record, s, r, c))
-                      const na = section.columns.some((c) => record.values[cellKey(s, r, c.key)] === "N/A")
+                      const rowIssue = cols.some((c) => cellIssue(t, record, s, r, c))
+                      const na = cols.some((c) => val(record, s, r, c) === "N/A")
                       return (
                         <tr key={`${row}-${r}`} className={rowIssue ? "bad" : ""}>
                           <td>{row}</td>
-                          {section.columns.map((c) => {
+                          {cols.map((c) => {
                             const issue = cellIssue(t, record, s, r, c)
                             const limit = limitText(t, record, s, r, c)
                             return (
                               <td key={c.key} title={issue || limit}>
-                                <Cell col={c} value={record.values[cellKey(s, r, c.key)] || ""} issue={issue} limit={limit} onChange={(v) => set(cellKey(s, r, c.key), v)} />
+                                <Cell col={c} value={val(record, s, r, c)} issue={issue} limit={limit} onChange={(v) => set(cellKey(s, r, c.key), v)} />
+                                <Recheck t={t} record={record} s={s} r={r} c={c} onChange={set} />
                               </td>
                             )
                           })}
@@ -527,14 +562,14 @@ function FormViewer({ record, template: t, mobile, canSign, editable, onBack, on
           <strong><Icon name="alert" size={15} /> {issues.length} non-conformit{issues.length === 1 ? "y" : "ies"}</strong>
           {issues.map((x, i) => (
             <div key={i}>
-              <span>{x.row} · {x.col}: {x.reason}</span>
+              <span>{x.row} · {x.col}: {x.reason}{x.recheck && <b className={x.recheck.includes("inspection") ? "forms-insp" : "forms-ok"}> · {x.recheck}</b>}</span>
               <em>{record.values[cellKey(x.s, x.r, "__action")] || "No corrective action recorded"}</em>
             </div>
           ))}
         </div>
       )}
 
-      {t.sections.map((section, s) => (
+      {t.sections.map((section, s) => { const cols = colsOf(t, record, s); return (
         <div className="forms-section" key={section.title}>
           <h3>{section.title}</h3>
           <div className="forms-table-wrap">
@@ -542,7 +577,7 @@ function FormViewer({ record, template: t, mobile, canSign, editable, onBack, on
               <thead>
                 <tr>
                   <th>{section.addRows || "Item"}</th>
-                  {section.columns.map((c) => <th key={c.key}>{c.label}</th>)}
+                  {cols.map((c) => <th key={c.key}>{c.label}</th>)}
                   <th>Corrective action / remark</th>
                 </tr>
               </thead>
@@ -550,10 +585,11 @@ function FormViewer({ record, template: t, mobile, canSign, editable, onBack, on
                 {rowsOf(t, record, s).map((row, r) => (
                   <tr key={`${row}-${r}`}>
                     <td>{row}</td>
-                    {section.columns.map((c) => {
-                      const v = record.values[cellKey(s, r, c.key)] || "—"
+                    {cols.map((c) => {
+                      const v = val(record, s, r, c) || "—"
                       const issue = cellIssue(t, record, s, r, c)
-                      return <td key={c.key} className={issue ? "bad" : ""}>{v}{c.unit && v !== "—" ? ` ${c.unit}` : ""}</td>
+                      const re = recheckOf(t, record, s, r, c)
+                      return <td key={c.key} className={issue ? "bad" : ""}>{v}{c.unit && v !== "—" ? ` ${c.unit}` : ""}{re.value && <em className={`forms-re ${re.state}`}> → {re.value}{c.unit ? ` ${c.unit}` : ""}</em>}</td>
                     })}
                     <td>{record.values[cellKey(s, r, "__action")] || ""}</td>
                   </tr>
@@ -562,7 +598,7 @@ function FormViewer({ record, template: t, mobile, canSign, editable, onBack, on
             </table>
           </div>
         </div>
-      ))}
+      )})}
       {(record.remarks || record.photos.length > 0) && (
         <div className="forms-section">
           <h3>Remarks & evidence</h3>
@@ -627,7 +663,7 @@ function Register({ db, templates: list, onOpen }: { db: FormsDb; templates: For
                     <td key={i}>
                       {cell.map((r) => (
                         <button key={r.id} className={`reg-dot ${statusTone(r.status)} ${issuesOf(t, r).length ? "flagged" : ""}`} title={`${r.ref} · ${r.status}${r.header.shift ? ` · ${r.header.shift}` : ""}`} onClick={() => onOpen(r.id)}>
-                          {r.header.shift ? r.header.shift.replace(/[^0-9]/g, "") || r.header.shift[0] : "●"}
+                          {!r.header.shift ? "●" : r.header.shift.startsWith("6am") ? "D" : r.header.shift.startsWith("6pm") ? "N" : r.header.shift.replace(/[^0-9]/g, "") || r.header.shift[0]}
                         </button>
                       ))}
                     </td>
@@ -641,7 +677,7 @@ function Register({ db, templates: list, onOpen }: { db: FormsDb; templates: For
           </tbody>
         </table>
       </div>
-      <p className="ops-muted">Green = approved · amber = in review · red = returned · ring = has non-conformities. Numbers are the shift (1st / 2nd / 3rd).</p>
+      <p className="ops-muted">Green = approved · amber = in review · red = returned · ring = has non-conformities. Numbers are the shift (1st / 2nd / 3rd); D / N are the 6am–6pm and 6pm–6am shifts on 2-shift wards.</p>
     </div>
   )
 }
